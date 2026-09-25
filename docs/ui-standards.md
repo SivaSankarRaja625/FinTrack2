@@ -12,6 +12,9 @@ FinTrack uses a calm, information-first interface.
 - Keep Home, Activity, Plan, and Worth in the persistent bottom navigation, with
   other sections in an accessible drawer. Touch targets are at least 44px and
   dialogs open as bottom sheets without hiding their actions.
+- Bottom navigation links expose their visible labels to assistive technology.
+  Dismissing the drawer restores focus to its opener; selecting a section moves
+  focus to the destination heading, including after a section finishes loading.
 - Neutral surfaces, one teal accent, semantic status colors, and tabular numerals.
 - A shared spacing/type/radius scale and consistent alignment.
 - Light, dark, and system themes with WCAG AA contrast.

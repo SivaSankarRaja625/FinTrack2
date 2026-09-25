@@ -53,23 +53,58 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { data, alerts } = useFinance()
   const location = useLocation()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [focusDestination, setFocusDestination] = useState<string | null>(null)
   const drawerRef = useRef<HTMLElement>(null)
   const drawerTriggerRef = useRef<HTMLButtonElement>(null)
+  const restoreTriggerFocus = useRef(false)
+  const pageRef = useRef<HTMLElement>(null)
   const profile = data.profiles[0]
   const activeAlerts = alerts.filter((alert) => alert.severity !== 'info').length
   const moreActive = !mobileNavigation.some((item) => item.to === location.pathname)
 
   const openDrawer = (event: MouseEvent<HTMLButtonElement>) => {
     drawerTriggerRef.current = event.currentTarget
+    restoreTriggerFocus.current = false
+    setFocusDestination(null)
     setDrawerOpen(true)
   }
   const closeDrawer = () => {
+    restoreTriggerFocus.current = true
+    setDrawerOpen(false)
+  }
+  const navigateFromDrawer = (path: string) => {
+    restoreTriggerFocus.current = false
+    setFocusDestination(path)
     setDrawerOpen(false)
   }
 
   useEffect(() => {
-    if (!drawerOpen) drawerTriggerRef.current?.focus()
+    if (!drawerOpen && restoreTriggerFocus.current) {
+      restoreTriggerFocus.current = false
+      drawerTriggerRef.current?.focus()
+    }
   }, [drawerOpen])
+
+  useEffect(() => {
+    if (drawerOpen || focusDestination !== location.pathname) return
+    const page = pageRef.current
+    if (!page) return
+
+    const focusHeading = () => {
+      const heading = page.querySelector<HTMLHeadingElement>('.page-header h1')
+      if (!heading) return false
+      heading.focus()
+      setFocusDestination(null)
+      return true
+    }
+
+    if (focusHeading()) return
+    const observer = new MutationObserver(() => {
+      if (focusHeading()) observer.disconnect()
+    })
+    observer.observe(page, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [drawerOpen, focusDestination, location.pathname])
 
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -83,7 +118,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     drawer?.querySelector<HTMLButtonElement>('.sidebar-close')?.focus()
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setDrawerOpen(false)
+        closeDrawer()
       }
       if (event.key !== 'Tab' || !drawer) return
       const focusable = Array.from(
@@ -155,7 +190,18 @@ export function AppShell({ children }: { children: ReactNode }) {
                   className={({ isActive }) =>
                     `nav-item${isActive ? ' nav-item-active' : ''}`
                   }
-                  onClick={closeDrawer}
+                  onClick={(event) => {
+                    if (
+                      event.defaultPrevented ||
+                      event.button !== 0 ||
+                      event.metaKey ||
+                      event.ctrlKey ||
+                      event.shiftKey ||
+                      event.altKey
+                    )
+                      return
+                    navigateFromDrawer(item.to)
+                  }}
                 >
                   <Icon name={item.icon} size={19} />
                   <span>{item.label}</span>
@@ -206,7 +252,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Icon name="lock" />
           </button>
         </header>
-        <main className="page-content" key={location.pathname}>
+        <main className="page-content" key={location.pathname} ref={pageRef}>
           {children}
         </main>
       </div>
@@ -217,10 +263,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             key={item.to}
             to={item.to}
             end={item.to === '/'}
-            aria-label={item.label}
             className={({ isActive }) =>
               `bottom-nav-item${isActive ? ' bottom-nav-active' : ''}`
             }
+            onClick={() => setFocusDestination(null)}
           >
             <Icon name={item.icon} size={20} />
             <span>{item.shortLabel}</span>

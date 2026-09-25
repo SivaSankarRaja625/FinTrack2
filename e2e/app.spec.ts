@@ -98,6 +98,89 @@ test('loads every finance section without leaving the local app', async ({ page 
   }
 })
 
+test('bottom section links use their visible labels as accessible names', async ({
+  page,
+}) => {
+  await createWorkspace(page)
+  const navigation = page.getByRole('navigation', { name: 'Primary sections' })
+  const sections = [
+    ['Home', '/', 'Financial overview'],
+    ['Activity', '/transactions', 'Transactions'],
+    ['Plan', '/plan', 'Plan & cash flow'],
+    ['Worth', '/net-worth', 'Net worth'],
+  ] as const
+
+  for (const [label, path, heading] of sections) {
+    const link = navigation.getByRole('link', { name: label, exact: true })
+    await expect(link).toHaveText(label)
+    await expect(link).toHaveAttribute('href', path)
+    await link.click()
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+  }
+})
+
+test('drawer dismissal restores focus and navigation focuses the destination heading', async ({
+  page,
+}) => {
+  await createWorkspace(page)
+  const more = page
+    .getByRole('navigation', { name: 'Primary sections' })
+    .getByRole('button', { name: /More sections/u })
+  const drawer = page.getByRole('dialog', { name: 'All sections' })
+  const close = drawer.getByRole('button', { name: 'Close navigation' })
+
+  await more.click()
+  await expect(close).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(drawer).toBeHidden()
+  await expect(more).toBeFocused()
+
+  await more.click()
+  await close.click()
+  await expect(more).toBeFocused()
+
+  await more.click()
+  await page.locator('.drawer-scrim').click({
+    position: { x: page.viewportSize()!.width - 10, y: 100 },
+  })
+  await expect(more).toBeFocused()
+
+  const headerTrigger = page.getByRole('button', { name: 'Open navigation' })
+  await headerTrigger.click()
+  await page.keyboard.press('Escape')
+  await expect(headerTrigger).toBeFocused()
+
+  let releaseChunk: () => void = () => {}
+  const chunkHeld = new Promise<void>((resolve) => {
+    releaseChunk = resolve
+  })
+  await page.route('**/assets/InsurancePage-*.js', async (route) => {
+    await chunkHeld
+    await route.continue()
+  })
+  await more.click()
+  await drawer.getByRole('link', { name: 'Insurance' }).click()
+  await expect(page.getByLabel('Loading section')).toBeVisible()
+  await expect(more).not.toBeFocused()
+  releaseChunk()
+  const insuranceHeading = page.getByRole('heading', {
+    name: 'Insurance',
+    exact: true,
+  })
+  await expect(insuranceHeading).toBeFocused()
+
+  await more.click()
+  await drawer.getByRole('link', { name: 'Insurance' }).click()
+  await expect(insuranceHeading).toBeFocused()
+
+  await page
+    .getByRole('navigation', { name: 'Primary sections' })
+    .getByRole('link', { name: 'Home', exact: true })
+    .click()
+  await expect(page.getByRole('heading', { name: 'Financial overview' })).toBeVisible()
+  await expect(more).not.toBeFocused()
+})
+
 test('keeps the mobile shell and navigation on every viewport', async ({ page }) => {
   await page.goto('/')
   await expect(
@@ -130,11 +213,11 @@ test('keeps the mobile shell and navigation on every viewport', async ({ page })
     viewport.height - 1,
   )
 
-  await bottomNavigation.getByRole('link', { name: 'Plan & cash flow' }).click()
+  await bottomNavigation.getByRole('link', { name: 'Plan' }).click()
   await expect(page.getByRole('heading', { name: 'Plan & cash flow' })).toBeVisible()
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
-  await bottomNavigation.getByRole('link', { name: 'Transactions' }).click()
+  await bottomNavigation.getByRole('link', { name: 'Activity' }).click()
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
   const more = bottomNavigation.getByRole('button', { name: /More sections/u })
   await more.click()
@@ -199,7 +282,7 @@ test('keeps populated finance records readable on a phone', async ({
   const bottomNavigation = page.getByRole('navigation', {
     name: 'Primary sections',
   })
-  await bottomNavigation.getByRole('link', { name: 'Transactions' }).click()
+  await bottomNavigation.getByRole('link', { name: 'Activity' }).click()
   await page.getByRole('button', { name: 'Add account' }).first().click()
   await page.getByLabel('Account name').fill('Salary and household reserve account')
   await page.getByLabel('Opening balance').fill('1234567.89')
