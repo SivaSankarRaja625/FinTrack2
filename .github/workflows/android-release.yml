@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -31,9 +31,14 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
-      - run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
+      - name: Verify preinstalled Android SDK
+        shell: bash
+        run: |
+          test -d "$ANDROID_HOME/platforms/android-36" || { echo "::error::Android API 36 is missing from the runner"; exit 1; }
+          for tool in aapt2 apksigner; do
+            test -x "$ANDROID_HOME/build-tools/35.0.0/$tool" || { echo "::error::Android Build Tools 35.0.0 ($tool) are missing"; exit 1; }
+          done
       - run: pnpm install --frozen-lockfile
       - run: pnpm android:sync
 

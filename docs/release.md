@@ -46,6 +46,8 @@ can be installed for review, but its runner-generated debug key cannot be
 relied on for in-place updates. It also builds an unsigned release variant to
 inspect the final Android permissions and backup rules. Do not distribute the
 debug artifact as a production release.
+Both Android workflows use the preinstalled SDK on the Ubuntu 24.04 runner
+and check for API 36 and Build Tools 35.0.0 before building.
 
 `.github/workflows/android-release.yml` runs for `v*` tags or manual dispatch. Add
 these encrypted repository secrets:
