@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and lower: upload only with device-side client encryption. -->
+<full-backup-content>
+    <include
+        domain="file"
+        path="system-backup/finance.snapshot"
+        requireFlags="clientSideEncryption" />
+</full-backup-content>
