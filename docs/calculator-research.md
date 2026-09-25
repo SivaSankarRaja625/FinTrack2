@@ -143,7 +143,8 @@ never a runtime network request.
   identify authorities to consult for future scheme-specific rules. Verify current
   eligibility, rates, limits and exit rules at implementation time.
 
-The first design decision is breadth: a reliable initial set of FD, RD, SIP,
-step-up SIP, STP, SWP and general goal/growth scenarios, or a wider first release
-with separately maintained, source-versioned government/pension rule packs.
-The user has not approved a design or implementation plan.
+On 25 September 2026, the user requested implementation of **both** the initial
+and later families. The proposed core design is in
+[`docs/superpowers/specs/2026-09-25-core-offline-calculators-design.md`](superpowers/specs/2026-09-25-core-offline-calculators-design.md).
+The written specification and implementation plan still require separate
+review before application code is changed.
