@@ -3,13 +3,20 @@
 FinTrack is a private, offline-first personal finance manager for a single user in
 India. It tracks accounts, transactions, budgets, cash flow, net worth, loans,
 investments, insurance, documents, goals, and deterministic alerts.
+Add credit cards under **Loans & credit** to record their last four digits, credit
+limit, statement day, and payment due day. Card balances come from the account
+ledger: enter an amount owed as a negative opening balance and record payments
+as transfers, not income. Cycle days are informational; check the latest statement
+for the actual due amount and date.
 The interface is designed for Android phones first; a wider browser or tablet
 centers the same compact app rather than expanding into a desktop dashboard.
 The **Calculators** section under More offers local what-if illustrations for
 bank deposits, investment contributions, transfers, withdrawals and financial
-goals. Rates and bank terms are entered by the user; market scenarios are not
-forecasts. Inputs and comparisons are cleared when the screen is left or the app
-locks and do not become saved financial records.
+goals. Choose a category, then a calculator to show its inputs. Rates and bank
+terms are entered by the user; market scenarios are not forecasts. Saved
+comparison scenarios remain available while switching calculators, but inputs
+and comparisons are cleared when the screen is left or the app locks and do not
+become saved financial records.
 
 ## Privacy model
 
@@ -37,12 +44,19 @@ pnpm install
 pnpm dev
 ```
 
-Quality checks:
+Run all quality checks locally before pushing or tagging:
 
 ```sh
 pnpm check
 pnpm test:e2e
 ```
+
+GitHub Actions does not run lint, unit, or Playwright tests. A push to `main` or
+a pull request builds and uploads an installable **debug APK** for review. Its
+temporary debug signing key may change between runs, so it is not an updatable
+production release. The tag/manual release workflow produces signed APK/AAB
+artifacts after local checks; Android builds still compile the app and inspect
+packaged permissions.
 
 Android debug artifact:
 

@@ -9,11 +9,13 @@ import {
 } from '../../domain/calculations'
 import { todayIso } from '../../domain/dates'
 import { formatMoney, sumPaise } from '../../domain/money'
-import type { Loan } from '../../domain/types'
+import type { Account, Loan } from '../../domain/types'
 import { ConfirmDialog } from '../../ui/Dialog'
 import { Icon } from '../../ui/Icon'
 import { EmptyState, Metric, PageHeader } from '../../ui/Page'
 import { useToast } from '../../ui/Toast'
+import { AccountDialog } from '../transactions/AccountDialog'
+import { CreditCardSection } from './CreditCardSection'
 import { LoanDialog } from './LoanDialog'
 import { LoanPaymentDialog } from './LoanPaymentDialog'
 import { RateChangeDialog } from './RateChangeDialog'
@@ -32,6 +34,7 @@ export function LoansPage() {
   const { notify } = useToast()
   const [selectedId, setSelectedId] = useState('')
   const [loanDialog, setLoanDialog] = useState<Loan | 'new' | null>(null)
+  const [cardDialog, setCardDialog] = useState<Account | 'new' | null>(null)
   const [paymentLoan, setPaymentLoan] = useState<Loan | null>(null)
   const [rateLoan, setRateLoan] = useState<Loan | null>(null)
   const [deleteLoan, setDeleteLoan] = useState<Loan | null>(null)
@@ -125,6 +128,13 @@ export function LoansPage() {
           />
         </div>
       </section>
+
+      <CreditCardSection
+        accounts={creditCards}
+        balances={balances}
+        onAdd={() => setCardDialog('new')}
+        onEdit={setCardDialog}
+      />
 
       {data.loans.length === 0 ? (
         <section className="card">
@@ -429,33 +439,13 @@ export function LoansPage() {
         </>
       )}
 
-      {creditCards.length > 0 ? (
-        <section className="card">
-          <header className="card-header">
-            <div>
-              <h2>Credit cards</h2>
-              <p className="muted">
-                Card balances come from account transactions. Add the due payment as a
-                recurring item for reminders and forecasting.
-              </p>
-            </div>
-          </header>
-          <div className="account-strip">
-            {creditCards.map((account) => (
-              <div key={account.id} className="account-tile">
-                <span>
-                  <strong>{account.name}</strong>
-                  <small>{account.institution || 'Credit card'}</small>
-                </span>
-                <strong className="tabular text-danger">
-                  {formatMoney(Math.max(0, -(balances.get(account.id) ?? 0)))}
-                </strong>
-              </div>
-            ))}
-          </div>
-        </section>
+      {cardDialog ? (
+        <AccountDialog
+          account={cardDialog === 'new' ? null : cardDialog}
+          initialType="credit-card"
+          onClose={() => setCardDialog(null)}
+        />
       ) : null}
-
       {loanDialog ? (
         <LoanDialog
           loan={loanDialog === 'new' ? null : loanDialog}

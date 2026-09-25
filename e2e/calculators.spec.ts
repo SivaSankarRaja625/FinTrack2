@@ -19,8 +19,80 @@ async function openCalculators(page: Page) {
   await expect(page.getByRole('heading', { name: 'Calculators' })).toBeFocused()
 }
 
+const choices = {
+  fd: ['Bank deposits', 'Fixed deposit'],
+  rd: ['Bank deposits', 'Recurring deposit'],
+  sip: ['Contribution and withdrawal plans', 'SIP'],
+  'step-up-sip': ['Contribution and withdrawal plans', 'Step-up SIP'],
+  'goal-sip': ['Contribution and withdrawal plans', 'Goal SIP'],
+  stp: ['Contribution and withdrawal plans', 'Systematic transfer'],
+  swp: ['Contribution and withdrawal plans', 'Systematic withdrawal'],
+  'lump-sum': ['Goals and purchasing power', 'Lump-sum growth'],
+  multiple: ['Goals and purchasing power', 'Wealth multiple'],
+  inflation: ['Goals and purchasing power', 'Future cost of inflation'],
+  delay: ['Goals and purchasing power', 'Cost of delay'],
+  retirement: ['Goals and purchasing power', 'Retirement drawdown'],
+} as const
+
+async function selectCalculator(page: Page, kind: keyof typeof choices) {
+  const [category, calculator] = choices[kind]
+  await page
+    .getByRole('group', { name: 'Calculator categories' })
+    .getByRole('button', { name: category, exact: true })
+    .click()
+  await page
+    .getByRole('group', { name: 'Available calculators' })
+    .getByRole('button', { name: calculator, exact: true })
+    .click()
+}
+
+test('category and calculator buttons reveal only the selected form', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 720 })
+  await openCalculators(page)
+
+  const categories = page.getByRole('group', { name: 'Calculator categories' })
+  const calculators = page.getByRole('group', { name: 'Available calculators' })
+  await expect(categories.getByRole('button')).toHaveCount(3)
+  await expect(calculators).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Edit assumptions' })).toHaveCount(0)
+
+  await categories.getByRole('button', { name: 'Bank deposits' }).click()
+  await expect(categories.getByRole('button', { name: 'Bank deposits' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await expect(calculators.getByRole('button')).toHaveCount(2)
+  await expect(calculators.getByRole('button', { name: 'Fixed deposit' })).toBeVisible()
+  await expect(calculators.getByRole('button', { name: 'SIP', exact: true })).toHaveCount(
+    0,
+  )
+  await expect(page.getByRole('heading', { name: 'Edit assumptions' })).toHaveCount(0)
+
+  await calculators.getByRole('button', { name: 'Recurring deposit' }).click()
+  await expect(
+    calculators.getByRole('button', { name: 'Recurring deposit' }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByLabel('Actual instalment dates')).toBeVisible()
+  await expect(page.getByLabel('Initial deposit')).toHaveCount(0)
+
+  await categories
+    .getByRole('button', { name: 'Contribution and withdrawal plans' })
+    .click()
+  await expect(calculators.getByRole('button')).toHaveCount(5)
+  await expect(page.getByLabel('Actual instalment dates')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Edit assumptions' })).toHaveCount(0)
+  await calculators.getByRole('button', { name: 'SIP', exact: true }).press('Enter')
+  await expect(page.getByLabel('Monthly contribution')).toBeVisible()
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(320)
+})
+
 test('navigation and deposit illustration use explicit bank terms', async ({ page }) => {
   await openCalculators(page)
+  await selectCalculator(page, 'fd')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2027-01-01')
   await page.getByLabel('Initial deposit').fill('10000')
@@ -36,7 +108,7 @@ test('zero-return SIP shows contributions and changing inputs invalidates result
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('sip')
+  await selectCalculator(page, 'sip')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2027-01-01')
   await page.getByLabel('Contribution frequency').selectOption('1')
@@ -66,7 +138,7 @@ test('quarterly SIP labels a payment per quarter and compares it to a three-mont
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('sip')
+  await selectCalculator(page, 'sip')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2027-01-01')
   await page.getByLabel('Contribution frequency').selectOption('3')
@@ -83,7 +155,6 @@ test('instruments expose their own inputs instead of reusing a generic return fo
   page,
 }) => {
   await openCalculators(page)
-  const calculator = page.getByLabel('Calculator')
   for (const [kind, field] of [
     ['rd', 'Actual instalment dates'],
     ['step-up-sip', 'Increase every'],
@@ -95,8 +166,8 @@ test('instruments expose their own inputs instead of reusing a generic return fo
     ['inflation', 'Inflation rate'],
     ['delay', 'Delay (months)'],
     ['retirement', 'Monthly withdrawal'],
-  ]) {
-    await calculator.selectOption(kind)
+  ] as const) {
+    await selectCalculator(page, kind)
     await expect(page.getByLabel(field, { exact: true })).toBeVisible()
   }
 })
@@ -105,6 +176,7 @@ test('invalid bank terms never produce a successful-looking illustration', async
   page,
 }) => {
   await openCalculators(page)
+  await selectCalculator(page, 'fd')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2027-01-01')
   await page.getByLabel('Initial deposit').fill('10000')
@@ -119,6 +191,7 @@ test('early withdrawal identifies a percentage-point rate penalty, not any bank 
   page,
 }) => {
   await openCalculators(page)
+  await selectCalculator(page, 'fd')
   await page.getByRole('checkbox', { name: /Illustrate early closure/u }).check()
   await expect(
     page.getByLabel('Penalty (percentage points deducted from holding-period bank rate)'),
@@ -130,7 +203,7 @@ test('dated RD schedule identifies instalments and never invents missed payments
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('rd')
+  await selectCalculator(page, 'rd')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2026-04-01')
   await page.getByLabel('Monthly instalment').fill('1000')
@@ -159,7 +232,7 @@ test('zero-return STP keeps transfers internal and shows both fund balances', as
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('stp')
+  await selectCalculator(page, 'stp')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2026-04-01')
   await page.getByLabel('Transfer frequency').selectOption('1')
@@ -187,7 +260,7 @@ test('zero-return SWP separates cash received from corpus in its dated schedule'
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('swp')
+  await selectCalculator(page, 'swp')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2026-04-01')
   await page.getByLabel('Withdrawal frequency').selectOption('1')
@@ -210,7 +283,7 @@ test('unit-based STP and SWP demand matching starting units and NAV before calcu
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('stp')
+  await selectCalculator(page, 'stp')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2026-03-01')
   await page.getByLabel('Transfer frequency').selectOption('1')
@@ -233,7 +306,7 @@ test('unit-based STP and SWP demand matching starting units and NAV before calcu
   await page.getByRole('button', { name: 'Calculate' }).click()
   await expect(page.getByText('source balance')).toBeVisible()
   await expect(page.getByText('target balance')).toBeVisible()
-  await page.getByLabel('Calculator').selectOption('swp')
+  await selectCalculator(page, 'swp')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2026-04-01')
   await page.getByLabel('Withdrawal frequency').selectOption('1')
@@ -253,7 +326,7 @@ test('missing dated market returns show an error instead of filling the omitted 
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('sip')
+  await selectCalculator(page, 'sip')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2026-03-01')
   await page.getByLabel('Contribution frequency').selectOption('1')
@@ -269,7 +342,7 @@ test('goal SIP solves a manually entered inflation-adjusted target without inven
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('goal-sip')
+  await selectCalculator(page, 'goal-sip')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2027-01-01')
   await page.getByLabel('Contribution frequency').selectOption('1')
@@ -287,7 +360,7 @@ test('step-up SIP displays first and final instalments and flags the entered bud
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('step-up-sip')
+  await selectCalculator(page, 'step-up-sip')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2027-02-01')
   await page.getByLabel('Contribution frequency').selectOption('1')
@@ -308,7 +381,7 @@ test('inflation and multiple calculators show scalar outcomes without pretending
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('multiple')
+  await selectCalculator(page, 'multiple')
   await page.getByLabel('Initial amount').fill('1000')
   await page.getByLabel('Assumed annual return').fill('0')
   await page.getByLabel('2x or 3x').selectOption('2')
@@ -316,7 +389,7 @@ test('inflation and multiple calculators show scalar outcomes without pretending
   await page.getByRole('button', { name: 'Calculate' }).click()
   await expect(page.getByText('Not reached')).toBeVisible()
   await expect(page.getByText('Calculation schedule')).toHaveCount(0)
-  await page.getByLabel('Calculator').selectOption('inflation')
+  await selectCalculator(page, 'inflation')
   await page.getByLabel('Current cost').fill('1000')
   await page.getByLabel('Inflation rate', { exact: true }).fill('0')
   await page.getByLabel('Years').fill('10')
@@ -329,7 +402,7 @@ test('lump-sum illustration retains the exact entered rate next to its dated res
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('lump-sum')
+  await selectCalculator(page, 'lump-sum')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2027-01-01')
   await page.getByLabel('Initial amount').fill('10000')
@@ -345,7 +418,7 @@ test('retirement drawdown and delay both keep contributions separate from withdr
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('retirement')
+  await selectCalculator(page, 'retirement')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2027-01-01')
   await page.getByLabel('Contribution frequency').selectOption('1')
@@ -359,7 +432,7 @@ test('retirement drawdown and delay both keep contributions separate from withdr
   await expect(page.getByText('₹12,000', { exact: false }).first()).toBeVisible()
   await expect(page.getByText('₹3,000', { exact: false }).first()).toBeVisible()
   await expect(page.getByText('₹9,000', { exact: false }).first()).toBeVisible()
-  await page.getByLabel('Calculator').selectOption('delay')
+  await selectCalculator(page, 'delay')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2027-01-01')
   await page.getByLabel('Contribution frequency').selectOption('1')
@@ -381,7 +454,7 @@ test('poor early SWP return paths change the ending corpus without promising wit
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('swp')
+  await selectCalculator(page, 'swp')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2026-04-01')
   await page.getByLabel('Withdrawal frequency').selectOption('1')
@@ -412,7 +485,7 @@ test('comparison flags different cash flows without ranking scenarios', async ({
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('sip')
+  await selectCalculator(page, 'sip')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2027-01-01')
   await page.getByLabel('Contribution frequency').selectOption('1')
@@ -442,7 +515,7 @@ test('leaving the route discards unsaved scenarios and previous form values', as
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('sip')
+  await selectCalculator(page, 'sip')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2027-01-01')
   await page.getByLabel('Contribution frequency').selectOption('1')
@@ -456,16 +529,17 @@ test('leaving the route discards unsaved scenarios and previous form values', as
     .getByRole('dialog', { name: 'All sections' })
     .getByRole('link', { name: 'Calculators' })
     .click()
-  await expect(page.getByLabel('Calculator')).toHaveValue('fd')
+  await expect(page.getByRole('group', { name: 'Calculator categories' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Available calculators' })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Illustration' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Compare scenarios' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Compare scenarios' })).toHaveCount(0)
 })
 
-test('cross-kind comparison reports incompatible horizons rather than inventing valuations', async ({
+test('cross-kind comparison rejects mismatched horizons and compares matching ones', async ({
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('sip')
+  await selectCalculator(page, 'sip')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2027-01-01')
   await page.getByLabel('Contribution frequency').selectOption('1')
@@ -473,7 +547,9 @@ test('cross-kind comparison reports incompatible horizons rather than inventing 
   await page.getByLabel('Assumed annual return').fill('0')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await page.getByRole('button', { name: 'Add scenario' }).click()
-  await page.getByLabel('Calculator').selectOption('lump-sum')
+  await selectCalculator(page, 'lump-sum')
+  await expect(page.getByRole('heading', { name: 'Illustration' })).toHaveCount(0)
+  await expect(page.locator('.calculator-saved')).toContainText('SIP')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2028-01-01')
   await page.getByLabel('Initial amount').fill('12000')
@@ -484,13 +560,26 @@ test('cross-kind comparison reports incompatible horizons rather than inventing 
   await page.getByRole('button', { name: 'Compare scenarios' }).click()
   await expect(page.getByText(/different evaluation dates|same end date/i)).toBeVisible()
   await expect(page.getByText('Inflation-adjusted end value')).toHaveCount(0)
+
+  await page.getByRole('button', { name: /Remove Lump-sum growth/u }).click()
+  await page.getByLabel('End date').fill('2027-01-01')
+  await page.getByRole('button', { name: 'Calculate' }).click()
+  await page.getByRole('button', { name: 'Add scenario' }).click()
+  await page.getByRole('button', { name: 'Compare scenarios' }).click()
+  const compared = page.locator('.calculator-comparison-card')
+  await expect(compared).toHaveCount(2)
+  await expect(compared.nth(0)).toContainText('SIP')
+  await expect(compared.nth(0).locator('dd').nth(2)).toHaveText('₹12,000')
+  await expect(compared.nth(1)).toContainText('Lump-sum growth')
+  await expect(compared.nth(1).locator('dd').nth(2)).toHaveText('₹12,000')
+  await expect(page.getByText('Different cash flows')).toBeVisible()
 })
 
 test('lock clears in-memory calculations even after unlocking the same workspace', async ({
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('sip')
+  await selectCalculator(page, 'sip')
   await page.getByLabel('Start date').fill('2026-01-01')
   await page.getByLabel('End date').fill('2027-01-01')
   await page.getByLabel('Contribution frequency').selectOption('1')
@@ -507,14 +596,14 @@ test('lock clears in-memory calculations even after unlocking the same workspace
     .getByRole('link', { name: 'Calculators' })
     .click()
   await expect(page.getByText('₹12,000', { exact: false })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Compare scenarios' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Compare scenarios' })).toHaveCount(0)
 })
 
 test('accessibility remains usable for calculator controls at 320px', async ({
   page,
 }) => {
   await openCalculators(page)
-  await page.getByLabel('Calculator').selectOption('stp')
+  await selectCalculator(page, 'stp')
   await page.setViewportSize({ width: 320, height: 720 })
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),

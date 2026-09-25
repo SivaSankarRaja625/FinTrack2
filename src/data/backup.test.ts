@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { financeData } from '../test/fixtures'
+import { account, financeData } from '../test/fixtures'
 import {
   attachmentFromBackup,
   attachmentToBackup,
@@ -35,6 +35,31 @@ describe('complete encrypted backup', () => {
     const restored = await readCompleteBackup(bytes, 'backup-pin')
     expect(restored.records).toEqual(financeData())
     expect(attachmentFromBackup(restored.attachments[0]!).content).toEqual(content)
+  })
+
+  it('retains optional credit card details through encrypted export and restore', async () => {
+    const details = {
+      lastFour: '0042',
+      creditLimitPaise: 10_000_000,
+      statementDay: 20,
+      paymentDueDay: 9,
+    }
+    const records = financeData({
+      accounts: [
+        account({
+          type: 'credit-card',
+          openingBalancePaise: -2_500_000,
+          creditCardDetails: details,
+        }),
+      ],
+    })
+    const bytes = await createCompleteBackup(
+      { dataSchemaVersion: 1, records, attachments: [] },
+      'backup-pin',
+      { kdf: testKdfParameters },
+    )
+    const restored = await readCompleteBackup(bytes, 'backup-pin')
+    expect(restored.records.accounts[0]?.creditCardDetails).toEqual(details)
   })
 
   it('rejects a wrong PIN and tampering', async () => {

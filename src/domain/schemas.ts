@@ -92,24 +92,45 @@ export const appSettingsSchema = z.object({
   cashFlowFloorPaise: paise.nonnegative(),
 })
 
-export const accountSchema = z.object({
-  ...base,
-  name: z.string().trim().min(1).max(100),
-  institution: z.string().trim().max(100),
-  type: z.enum([
-    'cash',
-    'savings',
-    'current',
-    'credit-card',
-    'loan',
-    'investment',
-    'retirement',
-    'other',
-  ]),
-  openingBalancePaise: paise,
-  includeInNetWorth: z.boolean(),
-  archived: z.boolean(),
-})
+export const accountSchema = z
+  .object({
+    ...base,
+    name: z.string().trim().min(1).max(100),
+    institution: z.string().trim().max(100),
+    type: z.enum([
+      'cash',
+      'savings',
+      'current',
+      'credit-card',
+      'loan',
+      'investment',
+      'retirement',
+      'other',
+    ]),
+    openingBalancePaise: paise,
+    includeInNetWorth: z.boolean(),
+    archived: z.boolean(),
+    creditCardDetails: z
+      .object({
+        lastFour: z
+          .string()
+          .regex(/^\d{4}$/u)
+          .nullable(),
+        creditLimitPaise: paise.positive().nullable(),
+        statementDay: z.number().int().min(1).max(31).nullable(),
+        paymentDueDay: z.number().int().min(1).max(31).nullable(),
+      })
+      .optional(),
+  })
+  .superRefine((account, context) => {
+    if (account.type !== 'credit-card' && account.creditCardDetails != null) {
+      context.addIssue({
+        code: 'custom',
+        path: ['creditCardDetails'],
+        message: 'Only credit card accounts can have card details',
+      })
+    }
+  })
 
 export const categorySchema = z.object({
   ...base,

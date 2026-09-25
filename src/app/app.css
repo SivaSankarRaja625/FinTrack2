@@ -394,6 +394,39 @@
   color: color-mix(in srgb, var(--warning) 94%, var(--text));
 }
 
+.calculator-picker {
+  display: grid;
+  gap: 14px;
+}
+
+.calculator-picker h2 {
+  margin: 0;
+}
+
+.calculator-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.calculator-categories {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.calculator-choices .button {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.calculator-choices .button[aria-pressed='true'] {
+  border-color: var(--accent-text);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
 .calculator-form,
 .calculator-result,
 .calculator-compare,
@@ -514,6 +547,10 @@
 }
 
 @media (max-width: 359px) {
+  .calculator-choices {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .calculator-metrics {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1030,6 +1067,60 @@
 
 .composition-debt {
   background: var(--danger);
+}
+
+.credit-card-list {
+  display: grid;
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+.credit-card-detail {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+}
+
+.credit-card-detail .cluster > div {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.credit-card-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.credit-card-values > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.credit-card-values span,
+.credit-card-cycle {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+}
+
+.credit-card-values strong {
+  overflow-wrap: anywhere;
+}
+
+.credit-card-cycle {
+  margin: 0;
+}
+
+@media (max-width: 359px) {
+  .credit-card-values {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .loan-selector {
@@ -1713,6 +1804,22 @@
   align-items: end;
   gap: 18px;
   padding: 18px;
+}
+
+.reports-page .composition-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.report-month-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.report-month-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.82rem;
 }
 
 .report-range {

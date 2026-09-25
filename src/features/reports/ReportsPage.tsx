@@ -1,4 +1,4 @@
-import { endOfMonth, format, parse, parseISO, startOfMonth } from 'date-fns'
+import { endOfMonth, format, isValid, parse, parseISO, startOfMonth } from 'date-fns'
 import { useState } from 'react'
 
 import { useFinance } from '../../app/FinanceContext'
@@ -30,6 +30,13 @@ function periodRange(mode: 'month' | 'financial-year', month: string): DateRange
     start: format(startOfMonth(parsed), 'yyyy-MM-dd'),
     end: format(endOfMonth(parsed), 'yyyy-MM-dd'),
   }
+}
+
+function isValidMonth(value: string): boolean {
+  return (
+    /^\d{4}-(0[1-9]|1[0-2])$/u.test(value) &&
+    isValid(parse(`${value}-01`, 'yyyy-MM-dd', new Date()))
+  )
 }
 
 function monthlyCashFlow(
@@ -69,6 +76,8 @@ export function ReportsPage() {
   const { notify } = useToast()
   const [mode, setMode] = useState<'month' | 'financial-year'>('month')
   const [month, setMonth] = useState(format(new Date(), 'yyyy-MM'))
+  const [monthInput, setMonthInput] = useState(month)
+  const invalidMonth = !isValidMonth(monthInput)
   const [exportOpen, setExportOpen] = useState(false)
   const range = periodRange(mode, month)
   const filteredTransactions = data.transactions.filter((transaction) =>
@@ -151,7 +160,7 @@ export function ReportsPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page reports-page">
       <PageHeader
         title="Reports"
         description="Cash flow, categories, debt, investments, and policy schedules from local records."
@@ -182,15 +191,28 @@ export function ReportsPage() {
             <option value="financial-year">Indian financial year</option>
           </select>
         </label>
-        <label className="field">
-          <span>{mode === 'month' ? 'Month' : 'Financial year containing'}</span>
-          <input
-            className="input"
-            type="month"
-            value={month}
-            onChange={(event) => setMonth(event.target.value)}
-          />
-        </label>
+        <div className="report-month-field">
+          <label className="field">
+            <span>{mode === 'month' ? 'Month' : 'Financial year containing'}</span>
+            <input
+              className="input"
+              type="month"
+              value={monthInput}
+              aria-invalid={invalidMonth}
+              aria-describedby={invalidMonth ? 'report-month-error' : undefined}
+              onChange={(event) => {
+                const nextMonth = event.target.value
+                setMonthInput(nextMonth)
+                if (isValidMonth(nextMonth)) setMonth(nextMonth)
+              }}
+            />
+          </label>
+          {invalidMonth ? (
+            <p id="report-month-error" className="report-month-error" role="alert">
+              Choose a month to view the report.
+            </p>
+          ) : null}
+        </div>
         <div className="report-range">
           <span>Included dates</span>
           <strong>

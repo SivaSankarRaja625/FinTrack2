@@ -14,8 +14,10 @@ Every release must pass:
 5. Migration and restore tests from every released schema/backup fixture.
 6. Dependency, license, secret, and source-map review.
 
-Signing keys and passwords live only in GitHub encrypted secrets or the release
-operator's secure local environment. They are never committed.
+Run `pnpm check` and `pnpm test:e2e` locally before pushing or tagging; GitHub
+Actions builds Android artifacts but does not run the lint, unit, or browser test
+suites. Signing keys and passwords live only in GitHub encrypted secrets or the
+release operator's secure local environment. They are never committed.
 
 ## Local Android verification
 
@@ -38,6 +40,12 @@ Android's batching window and must not request or open settings for an exact-ala
 privilege. Verify one future reminder before and after a device reboot.
 
 ## Signed GitHub artifacts
+
+The `main` push/pull-request workflow builds and uploads a **debug APK** that
+can be installed for review, but its runner-generated debug key cannot be
+relied on for in-place updates. It also builds an unsigned release variant to
+inspect the final Android permissions and backup rules. Do not distribute the
+debug artifact as a production release.
 
 `.github/workflows/android-release.yml` runs for `v*` tags or manual dispatch. Add
 these encrypted repository secrets:

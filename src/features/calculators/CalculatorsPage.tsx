@@ -36,7 +36,8 @@ const liquidityNote = (kind: ScenarioResult['kind']) =>
         : 'Actual redemption timing, NAV, charges and taxes are not included.'
 
 export function CalculatorsPage() {
-  const [kind, setKind] = useState<CalculatorKind>('fd')
+  const [category, setCategory] = useState<string | null>(null)
+  const [kind, setKind] = useState<CalculatorKind | null>(null)
   const [output, setOutput] = useState<CalculatorOutput | null>(null)
   const [outdated, setOutdated] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -46,17 +47,25 @@ export function CalculatorsPage() {
   const [inflation, setInflation] = useState('')
   const [compared, setCompared] = useState<Comparison | null>(null)
   const [compareError, setCompareError] = useState<string | null>(null)
+  const selectedGroup = groups.find((group) => group.label === category)
 
-  const changeKind = (selected: CalculatorKind) => {
+  const changeKind = (selected: CalculatorKind | null) => {
+    if (selected === kind) return
     setKind(selected)
-    setOutdated(output !== null)
+    setOutput(null)
+    setOutdated(false)
     setError(null)
     setCompared(null)
     setCompareError(null)
     setScenarioName('')
   }
+  const changeCategory = (selected: string) => {
+    if (selected === category) return
+    setCategory(selected)
+    changeKind(null)
+  }
   const addScenario = () => {
-    if (!output || outdated || output.kind === 'metric') return
+    if (!kind || !output || outdated || output.kind === 'metric') return
     const results = output.kind === 'paired' ? output.results : [output.result]
     const available = 3 - scenarios.length
     if (available < results.length) return
@@ -113,43 +122,66 @@ export function CalculatorsPage() {
         title="Calculators"
         description="Private, offline what-if illustrations using only your entered bank terms or market assumptions."
       />
-      <section className="card card-body">
-        <div className="field">
-          <label htmlFor="calculator-kind">Calculator</label>
-          <select
-            id="calculator-kind"
-            className="select"
-            value={kind}
-            onChange={(event) => changeKind(event.target.value as CalculatorKind)}
-          >
-            {groups.map((group) => (
-              <optgroup key={group.label} label={group.label}>
-                {group.kinds.map((item) => (
-                  <option key={item} value={item}>
-                    {calculatorNames[item]}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+      <section className="card card-body calculator-picker">
+        <h2>Choose a category</h2>
+        <div
+          role="group"
+          aria-label="Calculator categories"
+          className="calculator-choices calculator-categories"
+        >
+          {groups.map((group) => (
+            <button
+              key={group.label}
+              type="button"
+              className="button button-secondary"
+              aria-pressed={category === group.label}
+              onClick={() => changeCategory(group.label)}
+            >
+              {group.label}
+            </button>
+          ))}
         </div>
       </section>
-      <CalculatorForm
-        key={kind}
-        kind={kind}
-        onCalculated={(next) => {
-          setOutput(next)
-          setOutdated(false)
-          setError(null)
-          setCompared(null)
-          setCompareError(null)
-        }}
-        onError={setError}
-        onInputChanged={() => {
-          if (output) setOutdated(true)
-          setCompared(null)
-        }}
-      />
+      {selectedGroup ? (
+        <section className="card card-body calculator-picker">
+          <h2>Choose a calculator</h2>
+          <div
+            role="group"
+            aria-label="Available calculators"
+            className="calculator-choices"
+          >
+            {selectedGroup.kinds.map((item) => (
+              <button
+                key={item}
+                type="button"
+                className="button button-secondary"
+                aria-pressed={kind === item}
+                onClick={() => changeKind(item)}
+              >
+                {calculatorNames[item]}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {kind ? (
+        <CalculatorForm
+          key={kind}
+          kind={kind}
+          onCalculated={(next) => {
+            setOutput(next)
+            setOutdated(false)
+            setError(null)
+            setCompared(null)
+            setCompareError(null)
+          }}
+          onError={setError}
+          onInputChanged={() => {
+            if (output) setOutdated(true)
+            setCompared(null)
+          }}
+        />
+      ) : null}
       {error ? (
         <div className="notice notice-error" role="alert">
           {error}
@@ -168,157 +200,160 @@ export function CalculatorsPage() {
           </div>
         </>
       ) : null}
-      <section
-        className="card card-body calculator-compare"
-        aria-label="Scenario comparison"
-      >
-        <h2>Compare scenarios</h2>
-        <p className="field-hint">
-          Keep two or three calculated scenarios in memory only. All are discarded when
-          you leave this page or lock the app. Comparisons never rank products.
-        </p>
-        {output?.kind !== 'metric' && output ? (
-          <div className="field">
-            <label htmlFor="calculator-scenario-name">Scenario name (optional)</label>
-            <input
-              id="calculator-scenario-name"
-              className="input"
-              value={scenarioName}
-              onChange={(event) => setScenarioName(event.target.value)}
-              maxLength={60}
-            />
-          </div>
-        ) : null}
-        <button
-          type="button"
-          className="button button-secondary"
-          disabled={
-            !output ||
-            output.kind === 'metric' ||
-            outdated ||
-            scenarios.length + (output?.kind === 'paired' ? output.results.length : 1) > 3
-          }
-          onClick={addScenario}
+      {kind ? (
+        <section
+          className="card card-body calculator-compare"
+          aria-label="Scenario comparison"
         >
-          Add scenario
-        </button>
-        {scenarios.length ? (
-          <ul className="calculator-saved">
-            {scenarios.map((scenario) => (
-              <li key={scenario.id}>
-                <span>
-                  {scenario.label} — {scenario.result.endDate}
-                </span>
-                <button
-                  type="button"
-                  className="button-link"
-                  aria-label={`Remove ${scenario.label}`}
-                  onClick={() => {
-                    setScenarios((current) =>
-                      current.filter((item) => item.id !== scenario.id),
-                    )
-                    setCompared(null)
-                    setCompareError(null)
-                  }}
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        <div className="field">
-          <label htmlFor="calculator-inflation">Comparison inflation rate</label>
-          <input
-            id="calculator-inflation"
-            className="input"
-            inputMode="decimal"
-            value={inflation}
-            onChange={(event) => {
-              setInflation(event.target.value)
-              setCompared(null)
-              setCompareError(null)
-            }}
-          />
-          <p className="field-hint">Enter an annual percentage, even if it is 0.</p>
-        </div>
-        <button
-          type="button"
-          className="button"
-          disabled={outdated || scenarios.length < 2}
-          onClick={compare}
-        >
-          Compare scenarios
-        </button>
-        {compareError ? (
-          <p className="notice notice-error" role="alert">
-            {compareError}
+          <h2>Compare scenarios</h2>
+          <p className="field-hint">
+            Keep two or three calculated scenarios in memory only. All are discarded when
+            you leave this page or lock the app. Comparisons never rank products.
           </p>
-        ) : null}
-        {compared ? (
-          <div className="calculator-comparison" aria-label="Compared scenarios">
-            <h3>At the common evaluation date {scenarios[0]?.result.endDate}</h3>
-            <p className="field-hint">
-              Inflation-adjusted values are expressed in{' '}
-              {scenarios.reduce(
-                (earliest, scenario) =>
-                  scenario.result.startDate < earliest
-                    ? scenario.result.startDate
-                    : earliest,
-                scenarios[0]!.result.startDate,
-              )}{' '}
-              rupees for every scenario.
-            </p>
-            {compared.some((entry) => entry.differentCashFlows) ? (
-              <p className="notice notice-warning">
-                <strong>Different cash flows</strong> — amounts, timing or funding differ;
-                a higher end value does not establish a better choice.
-              </p>
-            ) : null}
-            {compared.map(({ result, realEndPaise }, index) => {
-              const total = Object.values(result.endingBalancesPaise).reduce(
-                (sum, value) => sum + value,
-                0,
-              )
-              return (
-                <article
-                  key={scenarios[index]!.id}
-                  className="calculator-comparison-card"
-                >
-                  <h4>{scenarios[index]!.label}</h4>
-                  <dl>
-                    <dt>External contributions</dt>
-                    <dd>{formatMoney(result.contributedPaise)}</dd>
-                    <dt>Cash received</dt>
-                    <dd>{formatMoney(result.withdrawnPaise)}</dd>
-                    <dt>End value</dt>
-                    <dd>{formatMoney(total)}</dd>
-                    <dt>Inflation-adjusted end value</dt>
-                    <dd>
-                      {realEndPaise === null
-                        ? 'Unavailable at this date'
-                        : formatMoney(realEndPaise)}
-                    </dd>
-                    <dt>Liquidity and depletion</dt>
-                    <dd>{liquidityNote(result.kind)}</dd>
-                    <dt>Dated annualized return (XIRR)</dt>
-                    <dd>
-                      {result.xirrPercent === null
-                        ? 'Unavailable for these cash flows'
-                        : `${result.xirrPercent.toFixed(2)}%`}
-                    </dd>
-                  </dl>
-                  {result.warnings.map((warning, warningIndex) => (
-                    <p key={warningIndex} className="field-hint">
-                      {warning}
-                    </p>
-                  ))}
-                </article>
-              )
-            })}
+          {output?.kind !== 'metric' && output ? (
+            <div className="field">
+              <label htmlFor="calculator-scenario-name">Scenario name (optional)</label>
+              <input
+                id="calculator-scenario-name"
+                className="input"
+                value={scenarioName}
+                onChange={(event) => setScenarioName(event.target.value)}
+                maxLength={60}
+              />
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className="button button-secondary"
+            disabled={
+              !output ||
+              output.kind === 'metric' ||
+              outdated ||
+              scenarios.length + (output?.kind === 'paired' ? output.results.length : 1) >
+                3
+            }
+            onClick={addScenario}
+          >
+            Add scenario
+          </button>
+          {scenarios.length ? (
+            <ul className="calculator-saved">
+              {scenarios.map((scenario) => (
+                <li key={scenario.id}>
+                  <span>
+                    {scenario.label} — {scenario.result.endDate}
+                  </span>
+                  <button
+                    type="button"
+                    className="button-link"
+                    aria-label={`Remove ${scenario.label}`}
+                    onClick={() => {
+                      setScenarios((current) =>
+                        current.filter((item) => item.id !== scenario.id),
+                      )
+                      setCompared(null)
+                      setCompareError(null)
+                    }}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="field">
+            <label htmlFor="calculator-inflation">Comparison inflation rate</label>
+            <input
+              id="calculator-inflation"
+              className="input"
+              inputMode="decimal"
+              value={inflation}
+              onChange={(event) => {
+                setInflation(event.target.value)
+                setCompared(null)
+                setCompareError(null)
+              }}
+            />
+            <p className="field-hint">Enter an annual percentage, even if it is 0.</p>
           </div>
-        ) : null}
-      </section>
+          <button
+            type="button"
+            className="button"
+            disabled={outdated || scenarios.length < 2}
+            onClick={compare}
+          >
+            Compare scenarios
+          </button>
+          {compareError ? (
+            <p className="notice notice-error" role="alert">
+              {compareError}
+            </p>
+          ) : null}
+          {compared ? (
+            <div className="calculator-comparison" aria-label="Compared scenarios">
+              <h3>At the common evaluation date {scenarios[0]?.result.endDate}</h3>
+              <p className="field-hint">
+                Inflation-adjusted values are expressed in{' '}
+                {scenarios.reduce(
+                  (earliest, scenario) =>
+                    scenario.result.startDate < earliest
+                      ? scenario.result.startDate
+                      : earliest,
+                  scenarios[0]!.result.startDate,
+                )}{' '}
+                rupees for every scenario.
+              </p>
+              {compared.some((entry) => entry.differentCashFlows) ? (
+                <p className="notice notice-warning">
+                  <strong>Different cash flows</strong> — amounts, timing or funding
+                  differ; a higher end value does not establish a better choice.
+                </p>
+              ) : null}
+              {compared.map(({ result, realEndPaise }, index) => {
+                const total = Object.values(result.endingBalancesPaise).reduce(
+                  (sum, value) => sum + value,
+                  0,
+                )
+                return (
+                  <article
+                    key={scenarios[index]!.id}
+                    className="calculator-comparison-card"
+                  >
+                    <h4>{scenarios[index]!.label}</h4>
+                    <dl>
+                      <dt>External contributions</dt>
+                      <dd>{formatMoney(result.contributedPaise)}</dd>
+                      <dt>Cash received</dt>
+                      <dd>{formatMoney(result.withdrawnPaise)}</dd>
+                      <dt>End value</dt>
+                      <dd>{formatMoney(total)}</dd>
+                      <dt>Inflation-adjusted end value</dt>
+                      <dd>
+                        {realEndPaise === null
+                          ? 'Unavailable at this date'
+                          : formatMoney(realEndPaise)}
+                      </dd>
+                      <dt>Liquidity and depletion</dt>
+                      <dd>{liquidityNote(result.kind)}</dd>
+                      <dt>Dated annualized return (XIRR)</dt>
+                      <dd>
+                        {result.xirrPercent === null
+                          ? 'Unavailable for these cash flows'
+                          : `${result.xirrPercent.toFixed(2)}%`}
+                      </dd>
+                    </dl>
+                    {result.warnings.map((warning, warningIndex) => (
+                      <p key={warningIndex} className="field-hint">
+                        {warning}
+                      </p>
+                    ))}
+                  </article>
+                )
+              })}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
     </div>
   )
 }

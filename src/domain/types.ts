@@ -83,6 +83,13 @@ export type AccountType =
   | 'retirement'
   | 'other'
 
+export interface CreditCardDetails {
+  lastFour: string | null
+  creditLimitPaise: Paise | null
+  statementDay: number | null
+  paymentDueDay: number | null
+}
+
 export interface Account extends BaseEntity {
   name: string
   institution: string
@@ -90,6 +97,7 @@ export interface Account extends BaseEntity {
   openingBalancePaise: Paise
   includeInNetWorth: boolean
   archived: boolean
+  creditCardDetails?: CreditCardDetails | undefined
 }
 
 export type CategoryKind = 'income' | 'expense'

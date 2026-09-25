@@ -301,9 +301,7 @@ export function calculateLoanSchedule(loan: Loan): LoanScheduleRow[] {
     const interestPaise =
       loan.interestType === 'flat'
         ? new Decimal(loan.principalPaise)
-            .mul(loan.annualInterestRateBps)
-            .div(10_000)
-            .div(12)
+            .mul(rowMonthlyRate)
             .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
             .toNumber()
         : new Decimal(balance)

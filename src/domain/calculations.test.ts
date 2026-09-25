@@ -229,6 +229,24 @@ describe('finance calculations', () => {
     expect(schedule[0]?.interestPaise).toBe(100_000)
   })
 
+  it('uses the effective rate for each flat-interest installment', () => {
+    const schedule = calculateLoanSchedule(
+      loan({
+        interestType: 'flat',
+        rateChanges: [
+          {
+            id: 'later-flat-rate',
+            effectiveDate: '2026-11-05',
+            annualInterestRateBps: 1_200,
+          },
+        ],
+      }),
+    )
+
+    expect(schedule[0]?.interestPaise).toBe(66_667)
+    expect(schedule[1]?.interestPaise).toBe(100_000)
+  })
+
   it('calculates the required goal contribution conservatively', () => {
     const goal: Goal = {
       id: 'goal',
