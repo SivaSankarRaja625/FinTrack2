@@ -62,3 +62,37 @@ test('a complete backup restores prior finance data and exports a safety copy', 
     0,
   )
 })
+
+test('an incorrect backup PIN preserves the current workspace', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-mobile', 'Stateful phone workflow')
+  await createWorkspace(page)
+  await openSection(page, 'Settings')
+  await page.getByRole('button', { name: 'Backup & restore' }).click()
+  await page.getByLabel('Backup PIN', { exact: true }).fill('Export2026')
+  await page.getByLabel('Confirm backup PIN').fill('Export2026')
+  const [backup] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Export complete backup' }).click(),
+  ])
+
+  await openSection(page, 'Transactions')
+  await addAccount(page, 'Keep this account', '100')
+  await openSection(page, 'Settings')
+  await page.getByRole('button', { name: 'Backup & restore' }).click()
+  await page.getByLabel('.finapp backup file').setInputFiles(await backup.path())
+  await page.getByLabel('Backup file PIN').fill('Wrong2026')
+  await page.getByLabel('New safety-backup PIN').fill('Safety2026')
+  await page.getByRole('button', { name: 'Review destructive restore' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Replace all current data?' })
+  await dialog.getByRole('button', { name: 'Create safety backup and restore' }).click()
+  await expect(
+    page.getByText('The PIN is incorrect or the encrypted data is damaged'),
+  ).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await openSection(page, 'Transactions')
+  await expect(
+    page.getByRole('button', { name: 'Keep this account savings ₹100' }),
+  ).toBeVisible()
+})

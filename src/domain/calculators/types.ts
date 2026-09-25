@@ -14,6 +14,9 @@ export type ScenarioKind =
   | 'swp'
   | 'lump-sum'
   | 'retirement'
+  | 'ppf'
+  | 'scss'
+  | 'frsb'
 
 export type EventKind =
   'contribution' | 'withdrawal' | 'transfer' | 'interest' | 'valuation' | 'fee'

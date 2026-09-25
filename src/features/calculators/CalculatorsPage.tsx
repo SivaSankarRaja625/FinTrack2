@@ -6,7 +6,13 @@ import { formatMoney } from '../../domain/money'
 import { PageHeader } from '../../ui/Page'
 import { CalculatorForm } from './CalculatorForm'
 import { CalculatorResult } from './CalculatorResult'
-import { calculatorNames, type CalculatorKind, type CalculatorOutput } from './types'
+import { NextCalculatorForm } from './NextCalculatorForm'
+import {
+  calculatorNames,
+  isNextCalculatorKind,
+  type CalculatorKind,
+  type CalculatorOutput,
+} from './types'
 
 type SavedScenario = { id: number; label: string; result: ScenarioResult }
 type Comparison = ReturnType<typeof compareScenarios>
@@ -24,16 +30,26 @@ const groups: readonly {
     label: 'Goals and purchasing power',
     kinds: ['lump-sum', 'multiple', 'inflation', 'delay', 'retirement'],
   },
+  { label: 'Government savings', kinds: ['ppf', 'scss'] },
+  { label: 'Bonds', kinds: ['frsb'] },
+  { label: 'Protection', kinds: ['cover-gap'] },
+  { label: 'Debt', kinds: ['loan-prepayment'] },
 ]
 
 const liquidityNote = (kind: ScenarioResult['kind']) =>
   kind === 'fd' || kind === 'rd'
     ? 'Early access depends on the bank contract and its actual penalty.'
-    : kind === 'swp' || kind === 'retirement'
-      ? 'Planned withdrawals can exhaust the corpus; see depletion warnings.'
-      : kind === 'stp'
-        ? 'Transfers are redemptions and subscriptions; loads and taxes are not included.'
-        : 'Actual redemption timing, NAV, charges and taxes are not included.'
+    : kind === 'ppf'
+      ? 'PPF maturity is after 15 full financial years; partial withdrawals and extension are not modelled.'
+      : kind === 'scss'
+        ? 'SCSS interest is paid out quarterly; premature closure and extension are not modelled.'
+        : kind === 'frsb'
+          ? 'Bond coupons are paid out half-yearly; senior-only premature redemption is not modelled.'
+          : kind === 'swp' || kind === 'retirement'
+            ? 'Planned withdrawals can exhaust the corpus; see depletion warnings.'
+            : kind === 'stp'
+              ? 'Transfers are redemptions and subscriptions; loads and taxes are not included.'
+              : 'Actual redemption timing, NAV, charges and taxes are not included.'
 
 export function CalculatorsPage() {
   const [category, setCategory] = useState<string | null>(null)
@@ -48,6 +64,20 @@ export function CalculatorsPage() {
   const [compared, setCompared] = useState<Comparison | null>(null)
   const [compareError, setCompareError] = useState<string | null>(null)
   const selectedGroup = groups.find((group) => group.label === category)
+  const formProps = {
+    onCalculated: (next: CalculatorOutput) => {
+      setOutput(next)
+      setOutdated(false)
+      setError(null)
+      setCompared(null)
+      setCompareError(null)
+    },
+    onError: setError,
+    onInputChanged: () => {
+      if (output) setOutdated(true)
+      setCompared(null)
+    },
+  }
 
   const changeKind = (selected: CalculatorKind | null) => {
     if (selected === kind) return
@@ -65,7 +95,13 @@ export function CalculatorsPage() {
     changeKind(null)
   }
   const addScenario = () => {
-    if (!kind || !output || outdated || output.kind === 'metric') return
+    if (
+      !kind ||
+      !output ||
+      outdated ||
+      (output.kind !== 'scenario' && output.kind !== 'paired')
+    )
+      return
     const results = output.kind === 'paired' ? output.results : [output.result]
     const available = 3 - scenarios.length
     if (available < results.length) return
@@ -120,7 +156,7 @@ export function CalculatorsPage() {
     <div className="page calculator-page">
       <PageHeader
         title="Calculators"
-        description="Private, offline what-if illustrations using only your entered bank terms or market assumptions."
+        description="Private, offline what-if illustrations using entered terms, scheme rates and market assumptions."
       />
       <section className="card card-body calculator-picker">
         <h2>Choose a category</h2>
@@ -165,22 +201,11 @@ export function CalculatorsPage() {
         </section>
       ) : null}
       {kind ? (
-        <CalculatorForm
-          key={kind}
-          kind={kind}
-          onCalculated={(next) => {
-            setOutput(next)
-            setOutdated(false)
-            setError(null)
-            setCompared(null)
-            setCompareError(null)
-          }}
-          onError={setError}
-          onInputChanged={() => {
-            if (output) setOutdated(true)
-            setCompared(null)
-          }}
-        />
+        isNextCalculatorKind(kind) ? (
+          <NextCalculatorForm key={kind} kind={kind} {...formProps} />
+        ) : (
+          <CalculatorForm key={kind} kind={kind} {...formProps} />
+        )
       ) : null}
       {error ? (
         <div className="notice notice-error" role="alert">
@@ -210,7 +235,7 @@ export function CalculatorsPage() {
             Keep two or three calculated scenarios in memory only. All are discarded when
             you leave this page or lock the app. Comparisons never rank products.
           </p>
-          {output?.kind !== 'metric' && output ? (
+          {(output?.kind === 'scenario' || output?.kind === 'paired') && output ? (
             <div className="field">
               <label htmlFor="calculator-scenario-name">Scenario name (optional)</label>
               <input
@@ -227,7 +252,7 @@ export function CalculatorsPage() {
             className="button button-secondary"
             disabled={
               !output ||
-              output.kind === 'metric' ||
+              (output.kind !== 'scenario' && output.kind !== 'paired') ||
               outdated ||
               scenarios.length + (output?.kind === 'paired' ? output.results.length : 1) >
                 3
@@ -307,6 +332,18 @@ export function CalculatorsPage() {
                 <p className="notice notice-warning">
                   <strong>Different cash flows</strong> — amounts, timing or funding
                   differ; a higher end value does not establish a better choice.
+                </p>
+              ) : null}
+              {compared.some(
+                (entry) =>
+                  entry.result.kind === 'ppf' ||
+                  entry.result.kind === 'scss' ||
+                  entry.result.kind === 'frsb',
+              ) ? (
+                <p className="notice notice-info">
+                  Government savings, bonds, bank deposits and market plans have different
+                  tax treatment and access rules. Figures are before tax and do not rank
+                  products.
                 </p>
               ) : null}
               {compared.map(({ result, realEndPaise }, index) => {

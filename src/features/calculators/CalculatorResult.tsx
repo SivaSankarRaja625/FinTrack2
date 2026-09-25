@@ -1,9 +1,47 @@
 import { formatMoney } from '../../domain/money'
+import type { RepaymentSchedule } from '../../domain/calculators/debt'
 import type { ScenarioResult } from '../../domain/calculators/types'
 import { Metric } from '../../ui/Page'
 import type { CalculatorOutput } from './types'
 
-const bankKinds = new Set(['fd', 'rd'])
+function LoanSchedule({
+  title,
+  schedule,
+}: {
+  title: string
+  schedule: RepaymentSchedule
+}) {
+  return (
+    <details className="calculator-schedule">
+      <summary>{title} repayment schedule</summary>
+      <div className="table-wrap">
+        <table className="data-table">
+          <caption>{title} monthly loan payments</caption>
+          <thead>
+            <tr>
+              <th scope="col">EMI date</th>
+              <th scope="col">Interest</th>
+              <th scope="col">EMI paid</th>
+              <th scope="col">Extra principal</th>
+              <th scope="col">Balance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {schedule.rows.map((row) => (
+              <tr key={row.date}>
+                <td>{row.date}</td>
+                <td>{formatMoney(row.interestPaise)}</td>
+                <td>{formatMoney(row.paymentPaise)}</td>
+                <td>{formatMoney(row.prepaymentPaise)}</td>
+                <td>{formatMoney(row.closingPaise)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  )
+}
 
 function ScenarioDetail({ result }: { result: ScenarioResult }) {
   const balance = Object.values(result.endingBalancesPaise).reduce(
@@ -141,6 +179,90 @@ export function CalculatorResult({ output }: { output: CalculatorOutput }) {
     )
   }
 
+  if (output.kind === 'breakdown') {
+    return (
+      <section
+        className="card card-body calculator-result"
+        aria-label="Calculation result"
+      >
+        <h2>Illustration</h2>
+        <Metric label={output.label} value={output.value} />
+        <div className="calculator-metrics">
+          {output.details.map(({ label, value }) => (
+            <Metric key={label} label={label} value={value} />
+          ))}
+        </div>
+        <p className="notice notice-info">{output.note}</p>
+        <p className="field-hint">
+          Needs-based protection illustration; not a regulatory cover amount or an
+          investment return. No live insurer data. Reviewed 25 September 2026.
+        </p>
+      </section>
+    )
+  }
+
+  if (output.kind === 'loan') {
+    const { baseline, prepaid, monthsSaved, netInterestSavedPaise } = output.result
+    return (
+      <section
+        className="card card-body calculator-result"
+        aria-label="Calculation result"
+      >
+        <h2>Illustration</h2>
+        <div className="calculator-metrics">
+          <Metric
+            label="Net nominal interest saved after charge"
+            value={formatMoney(netInterestSavedPaise)}
+          />
+          <Metric label="Months saved" value={`${monthsSaved} months`} />
+          <Metric
+            label="Original monthly EMI"
+            value={formatMoney(baseline.monthlyEmiPaise)}
+          />
+          <Metric
+            label="EMI after prepayment"
+            value={
+              prepaid.monthlyEmiPaise === 0
+                ? 'No further EMI'
+                : formatMoney(prepaid.monthlyEmiPaise)
+            }
+          />
+          <Metric
+            label="Interest without prepayment"
+            value={formatMoney(baseline.interestPaise)}
+          />
+          <Metric
+            label="Interest with prepayment"
+            value={formatMoney(prepaid.interestPaise)}
+          />
+          <Metric
+            label="Entered prepayment charge"
+            value={formatMoney(output.feePaise)}
+          />
+          <Metric
+            label="New final payment"
+            value={prepaid.rows.at(-1)?.date ?? 'Not available'}
+          />
+        </div>
+        <LoanSchedule title="Without prepayment" schedule={baseline} />
+        <LoanSchedule title="With prepayment" schedule={prepaid} />
+        <p className="notice notice-info">
+          Constant entered rate, monthly reducing interest at annual rate / 12 and
+          prepayment after the selected EMI. Savings are nominal, with no assumed
+          investment return, tax benefit or future rate reset. Confirm your lender&apos;s
+          recalculated schedule and disclosed charges.
+        </p>
+        <p className="field-hint">
+          RBI Pre-payment Charges on Loans Directions, 2025: floating-rate non-business
+          loans to individuals sanctioned or renewed from 1 January 2026 have no
+          prepayment charge. Other contracts may differ. Reviewed 25 September 2026.
+        </p>
+      </section>
+    )
+  }
+
+  const scenarioKind =
+    output.kind === 'scenario' ? output.result.kind : output.results[0]?.kind
   return (
     <section className="card card-body calculator-result" aria-label="Calculation result">
       <h2>Illustration</h2>
@@ -163,14 +285,26 @@ export function CalculatorResult({ output }: { output: CalculatorOutput }) {
         <ScenarioDetail result={output.result} />
       )}
       <p className="notice notice-info">
-        {output.kind === 'scenario' && bankKinds.has(output.result.kind)
-          ? 'Contractual bank terms are user-entered; bank rounding and actual payouts may differ.'
-          : 'Market returns are hypothetical, not forecasts. Actual NAVs, loads and taxes may differ.'}
+        {scenarioKind === 'ppf'
+          ? 'PPF rates change with government notifications. All future rates are entered assumptions; actual interest and maturity access depend on scheme rules.'
+          : scenarioKind === 'scss'
+            ? 'SCSS payouts are separate cash receipts, not reinvested. Actual payment is on the first working day; holiday timing and account treatment may differ.'
+            : scenarioKind === 'frsb'
+              ? 'Floating bond coupons are separate cash receipts, not reinvested. Actual payment days, broken-period interest and TDS may differ.'
+              : scenarioKind === 'fd' || scenarioKind === 'rd'
+                ? 'Contractual bank terms are user-entered; bank rounding and actual payouts may differ.'
+                : 'Market returns are hypothetical, not forecasts. Actual NAVs, loads and taxes may differ.'}
       </p>
       <p className="field-hint">
-        No live rates or product data are used. Source authority: user-entered bank
-        contract terms for deposits; user-entered assumptions for market illustrations.
-        Reviewed 25 September 2026. Tax and TDS are not calculated.
+        {scenarioKind === 'ppf'
+          ? 'Rule source: Public Provident Fund Scheme, 2019 (paragraphs 4, 7, 11).'
+          : scenarioKind === 'scss'
+            ? 'Rule source: Senior Citizens Savings Scheme, 2019 (paragraphs 4, 5, 7), as amended in 2023.'
+            : scenarioKind === 'frsb'
+              ? 'Rule source: RBI Floating Rate Savings Bonds, 2020 (Taxable), revised operational guidelines of 2 April 2026, sections 5-7; initial fixed coupon per the 2020 issue circular.'
+              : 'Source authority: user-entered bank contract terms for deposits; user-entered assumptions for market illustrations.'}{' '}
+        No live rates or product data are used. Reviewed 25 September 2026. Tax and TDS
+        are not calculated.
       </p>
     </section>
   )

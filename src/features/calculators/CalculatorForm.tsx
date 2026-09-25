@@ -30,7 +30,7 @@ import {
 } from '../../domain/calculators/wealth'
 import { isIsoDate } from '../../domain/dates'
 import { assertPaise, formatMoney, rupeesToPaise } from '../../domain/money'
-import type { CalculatorKind, CalculatorOutput } from './types'
+import type { CalculatorOutput, CoreCalculatorKind } from './types'
 
 type Values = Record<string, string>
 type FieldKind = 'money' | 'number' | 'date' | 'select' | 'textarea' | 'text'
@@ -152,7 +152,7 @@ const schemas = {
     withdrawal: money('Monthly withdrawal'),
     withdrawalMonths: integer('Withdrawal months', 1, 720),
   }),
-} satisfies Record<CalculatorKind, z.ZodType>
+} satisfies Record<CoreCalculatorKind, z.ZodType>
 
 const cadenceOptions = [
   { value: '', label: 'Choose timing' },
@@ -199,7 +199,7 @@ export function CalculatorForm({
   onError,
   onInputChanged,
 }: {
-  kind: CalculatorKind
+  kind: CoreCalculatorKind
   onCalculated: (output: CalculatorOutput) => void
   onError: (message: string | null) => void
   onInputChanged: () => void

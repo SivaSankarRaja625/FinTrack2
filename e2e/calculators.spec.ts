@@ -54,7 +54,7 @@ test('category and calculator buttons reveal only the selected form', async ({
 
   const categories = page.getByRole('group', { name: 'Calculator categories' })
   const calculators = page.getByRole('group', { name: 'Available calculators' })
-  await expect(categories.getByRole('button')).toHaveCount(3)
+  await expect(categories.getByRole('button')).toHaveCount(7)
   await expect(calculators).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Edit assumptions' })).toHaveCount(0)
 
