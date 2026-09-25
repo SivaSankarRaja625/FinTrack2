@@ -129,7 +129,7 @@ export function PlanPage() {
         </div>
       ) : null}
 
-      <section className="page-grid">
+      <section className="page-grid metric-group">
         <div className="card card-body span-4">
           <Metric
             label="Liquid balance today"

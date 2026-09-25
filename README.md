@@ -3,6 +3,8 @@
 FinTrack is a private, offline-first personal finance manager for a single user in
 India. It tracks accounts, transactions, budgets, cash flow, net worth, loans,
 investments, insurance, documents, goals, and deterministic alerts.
+The interface is designed for Android phones first; a wider browser or tablet
+centers the same compact app rather than expanding into a desktop dashboard.
 
 ## Privacy model
 

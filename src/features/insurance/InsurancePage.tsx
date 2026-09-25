@@ -222,7 +222,7 @@ export function InsurancePage() {
         </div>
       </section>
 
-      <section className="page-grid">
+      <section className="page-grid metric-group">
         <div className="card card-body span-3">
           <Metric label="Active policies" value={String(activePolicies.length)} />
         </div>
@@ -273,68 +273,47 @@ export function InsurancePage() {
             }
           />
         ) : (
-          <div className="table-wrap">
-            <table className="data-table insurance-table">
-              <thead>
-                <tr>
-                  <th>Policy</th>
-                  <th>Type</th>
-                  <th>Next premium</th>
-                  <th className="amount-cell">Cover</th>
-                  <th className="amount-cell">Premium</th>
-                  <th>Status</th>
-                  <th>
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.insurancePolicies.map((policy) => (
-                  <tr
-                    key={policy.id}
-                    className={selected?.id === policy.id ? 'selected-row' : ''}
-                    onClick={() => setSelectedId(policy.id)}
-                  >
-                    <td>
-                      <strong>{policy.policyName}</strong>
-                      <small>
-                        {policy.insurer}
-                        {policy.policyNumber
-                          ? ` · ending ${policy.policyNumber.slice(-4)}`
-                          : ''}
-                      </small>
-                    </td>
-                    <td>{policyTypeLabel(policy.type)}</td>
-                    <td>{format(parseISO(policy.nextPremiumDate), 'dd MMM yyyy')}</td>
-                    <td className="amount-cell tabular">
-                      {formatMoney(policy.sumAssuredPaise)}
-                    </td>
-                    <td className="amount-cell tabular">
-                      {formatMoney(policy.premiumPaise)}
-                    </td>
-                    <td>
-                      <span className={`badge${policy.active ? ' badge-positive' : ''}`}>
-                        {policy.active ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        aria-label={`Edit ${policy.policyName}`}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          setPolicyDialog(policy)
-                        }}
-                      >
-                        <Icon name="edit" size={17} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="record-list" aria-label="Policies">
+            {data.insurancePolicies.map((policy) => (
+              <li
+                key={policy.id}
+                className={`record-item${selected?.id === policy.id ? ' record-item-selected' : ''}`}
+              >
+                <button
+                  type="button"
+                  className="record-select"
+                  aria-pressed={selected?.id === policy.id}
+                  onClick={() => setSelectedId(policy.id)}
+                >
+                  <span className="record-title-line">
+                    <strong>{policy.policyName}</strong>
+                    <strong className="tabular">
+                      {formatMoney(policy.sumAssuredPaise)} cover
+                    </strong>
+                  </span>
+                  <span className="record-meta">
+                    {policyTypeLabel(policy.type)} · {policy.insurer}
+                    {policy.policyNumber
+                      ? ` · ending ${policy.policyNumber.slice(-4)}`
+                      : ''}
+                  </span>
+                  <span className="record-meta">
+                    {policy.active ? 'Active' : 'Inactive'} · Next premium{' '}
+                    {format(parseISO(policy.nextPremiumDate), 'dd MMM yyyy')} ·{' '}
+                    {formatMoney(policy.premiumPaise)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Edit ${policy.policyName}`}
+                  onClick={() => setPolicyDialog(policy)}
+                >
+                  <Icon name="edit" size={17} />
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

@@ -126,7 +126,10 @@ export function TransactionsPage() {
         }
       />
 
-      <section className="page-grid" aria-label="Monthly transaction summary">
+      <section
+        className="page-grid metric-group"
+        aria-label="Monthly transaction summary"
+      >
         <div className="card card-body span-4">
           <Metric
             label="Income this month"
@@ -264,92 +267,62 @@ export function TransactionsPage() {
             description="Change the account filter or search text."
           />
         ) : (
-          <div className="table-wrap">
-            <table className="data-table transaction-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Description</th>
-                  <th>Account</th>
-                  <th>Category</th>
-                  <th className="amount-cell">Amount</th>
-                  <th>
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTransactions.map((transaction) => {
-                  const isIncome = transaction.kind === 'income'
-                  const sign = isIncome || transaction.kind === 'adjustment' ? 1 : -1
-                  return (
-                    <tr key={transaction.id}>
-                      <td className="date-cell">
-                        {format(parseISO(transaction.date), 'dd MMM yyyy')}
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="table-primary-action"
-                          onClick={() => setTransactionDialog(transaction)}
-                        >
-                          {transaction.description}
-                        </button>
-                        {transaction.kind === 'transfer' ? (
-                          <small>
-                            Transfer to{' '}
-                            {accountNames.get(transaction.destinationAccountId ?? '') ??
-                              'account'}
-                          </small>
-                        ) : transaction.note ? (
-                          <small>{transaction.note}</small>
-                        ) : null}
-                      </td>
-                      <td>
-                        {accountNames.get(transaction.accountId) ?? 'Missing account'}
-                      </td>
-                      <td>
-                        {transaction.splits.length > 0
-                          ? `${transaction.splits.length} categories`
-                          : transaction.categoryId
-                            ? (categoryNames.get(transaction.categoryId) ??
-                              'Missing category')
-                            : transaction.kind === 'transfer'
-                              ? 'Transfer'
-                              : 'Uncategorised'}
-                      </td>
-                      <td
-                        className={`amount-cell tabular${isIncome ? ' text-positive' : transaction.kind === 'expense' ? ' text-danger' : ''}`}
+          <ul className="record-list" aria-label="Transactions">
+            {filteredTransactions.map((transaction) => {
+              const isIncome = transaction.kind === 'income'
+              const sign = isIncome || transaction.kind === 'adjustment' ? 1 : -1
+              const category =
+                transaction.splits.length > 0
+                  ? `${transaction.splits.length} categories`
+                  : transaction.categoryId
+                    ? (categoryNames.get(transaction.categoryId) ?? 'Missing category')
+                    : transaction.kind === 'transfer'
+                      ? 'Transfer'
+                      : 'Uncategorised'
+              return (
+                <li key={transaction.id} className="record-item">
+                  <button
+                    type="button"
+                    className="record-select"
+                    aria-label={`Edit ${transaction.description}`}
+                    onClick={() => setTransactionDialog(transaction)}
+                  >
+                    <span className="record-title-line">
+                      <strong>{transaction.description}</strong>
+                      <strong
+                        className={`tabular${isIncome ? ' text-positive' : transaction.kind === 'expense' ? ' text-danger' : ''}`}
                       >
                         {transaction.kind === 'transfer' ? '' : sign > 0 ? '+' : '−'}
                         {formatMoney(transaction.amountPaise)}
-                      </td>
-                      <td className="row-actions">
-                        <button
-                          type="button"
-                          className="icon-button"
-                          aria-label={`Edit ${transaction.description}`}
-                          onClick={() => setTransactionDialog(transaction)}
-                        >
-                          <Icon name="edit" size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-button"
-                          aria-label={`Delete ${transaction.description}`}
-                          onClick={() =>
-                            setDeleteTarget({ type: 'transaction', transaction })
-                          }
-                        >
-                          <Icon name="trash" size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </strong>
+                    </span>
+                    <span className="record-meta">
+                      {format(parseISO(transaction.date), 'dd MMM yyyy')} ·{' '}
+                      {accountNames.get(transaction.accountId) ?? 'Missing account'} ·{' '}
+                      {category}
+                    </span>
+                    {transaction.kind === 'transfer' ? (
+                      <span className="record-meta">
+                        To{' '}
+                        {accountNames.get(transaction.destinationAccountId ?? '') ??
+                          'account'}
+                      </span>
+                    ) : transaction.note ? (
+                      <span className="record-meta">{transaction.note}</span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`Delete ${transaction.description}`}
+                    onClick={() => setDeleteTarget({ type: 'transaction', transaction })}
+                  >
+                    <Icon name="trash" size={17} />
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
         )}
       </section>
 

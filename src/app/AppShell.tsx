@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 
 import type { IconName } from '../ui/Icon'
@@ -42,10 +42,10 @@ const navigation: Array<{ label: string; items: NavigationItem[] }> = [
 ]
 
 const mobileNavigation = [
-  navigation[0]!.items[0]!,
-  navigation[0]!.items[1]!,
-  navigation[0]!.items[3]!,
-  navigation[2]!.items[1]!,
+  { ...navigation[0]!.items[0]!, shortLabel: 'Home' },
+  { ...navigation[0]!.items[1]!, shortLabel: 'Activity' },
+  { ...navigation[0]!.items[2]!, shortLabel: 'Plan' },
+  { ...navigation[0]!.items[3]!, shortLabel: 'Worth' },
 ] as const
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -53,10 +53,58 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { data, alerts } = useFinance()
   const location = useLocation()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const drawerRef = useRef<HTMLElement>(null)
+  const drawerTriggerRef = useRef<HTMLButtonElement>(null)
   const profile = data.profiles[0]
   const activeAlerts = alerts.filter((alert) => alert.severity !== 'info').length
+  const moreActive = !mobileNavigation.some((item) => item.to === location.pathname)
 
-  const closeDrawer = () => setDrawerOpen(false)
+  const openDrawer = (event: MouseEvent<HTMLButtonElement>) => {
+    drawerTriggerRef.current = event.currentTarget
+    setDrawerOpen(true)
+  }
+  const closeDrawer = () => {
+    setDrawerOpen(false)
+  }
+
+  useEffect(() => {
+    if (!drawerOpen) drawerTriggerRef.current?.focus()
+  }, [drawerOpen])
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [location.pathname])
+
+  useEffect(() => {
+    if (!drawerOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const drawer = drawerRef.current
+    drawer?.querySelector<HTMLButtonElement>('.sidebar-close')?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setDrawerOpen(false)
+      }
+      if (event.key !== 'Tab' || !drawer) return
+      const focusable = Array.from(
+        drawer.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'),
+      )
+      const first = focusable[0]
+      const last = focusable.at(-1)
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last?.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first?.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [drawerOpen])
 
   return (
     <div className="app-frame">
@@ -68,7 +116,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           onClick={closeDrawer}
         />
       ) : null}
-      <aside className={`sidebar${drawerOpen ? ' sidebar-open' : ''}`}>
+      <aside
+        id="navigation-drawer"
+        ref={drawerRef}
+        className={`sidebar${drawerOpen ? ' sidebar-open' : ''}`}
+        role="dialog"
+        aria-label="All sections"
+        aria-modal={drawerOpen ? true : undefined}
+        aria-hidden={!drawerOpen}
+        inert={!drawerOpen}
+      >
         <div className="sidebar-brand">
           <span className="brand-mark" aria-hidden="true">
             <Icon name="net-worth" size={21} />
@@ -127,13 +184,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <div className="app-main">
+      <div className="app-main" inert={drawerOpen}>
         <header className="mobile-header">
           <button
             type="button"
             className="icon-button"
             aria-label="Open navigation"
-            onClick={() => setDrawerOpen(true)}
+            aria-expanded={drawerOpen}
+            aria-controls="navigation-drawer"
+            onClick={openDrawer}
           >
             <Icon name="menu" />
           </button>
@@ -152,30 +211,40 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
 
-      <nav className="bottom-nav" aria-label="Mobile navigation">
+      <nav className="bottom-nav" aria-label="Primary sections" inert={drawerOpen}>
         {mobileNavigation.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.to === '/'}
+            aria-label={item.label}
             className={({ isActive }) =>
               `bottom-nav-item${isActive ? ' bottom-nav-active' : ''}`
             }
           >
             <Icon name={item.icon} size={20} />
-            <span>{item.label.split(' ')[0]}</span>
-            {item.to === '/alerts' && activeAlerts > 0 ? (
-              <span className="bottom-count">{activeAlerts}</span>
-            ) : null}
+            <span>{item.shortLabel}</span>
           </NavLink>
         ))}
         <button
           type="button"
-          className="bottom-nav-item"
-          onClick={() => setDrawerOpen(true)}
+          className={`bottom-nav-item${moreActive ? ' bottom-nav-active' : ''}`}
+          aria-label={
+            activeAlerts > 0
+              ? `More sections, ${activeAlerts} active alerts`
+              : 'More sections'
+          }
+          aria-expanded={drawerOpen}
+          aria-controls="navigation-drawer"
+          onClick={openDrawer}
         >
           <Icon name="more" size={20} />
           <span>More</span>
+          {activeAlerts > 0 ? (
+            <span className="bottom-count" aria-hidden="true">
+              {activeAlerts}
+            </span>
+          ) : null}
         </button>
       </nav>
     </div>

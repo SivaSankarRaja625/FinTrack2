@@ -72,7 +72,7 @@ export function GoalsPage() {
         }
       />
 
-      <section className="page-grid">
+      <section className="page-grid metric-group">
         <div className="card card-body span-4">
           <Metric label="Combined target" value={formatMoney(totalTarget)} />
         </div>

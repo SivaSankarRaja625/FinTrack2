@@ -29,6 +29,28 @@ async function expectNoSeriousAccessibilityIssues(page: Page) {
   ).toEqual([])
 }
 
+async function dismissMessages(page: Page) {
+  await page.locator('.toast-region').evaluate((region) => {
+    for (const button of region.querySelectorAll<HTMLButtonElement>(
+      'button[aria-label="Dismiss message"]',
+    )) {
+      button.click()
+    }
+  })
+  await expect(page.locator('.toast')).toHaveCount(0)
+}
+
+async function expectPopulatedPhoneFits(page: Page) {
+  const viewport = page.viewportSize()!
+  await page.setViewportSize({ width: 320, height: 720 })
+  const widths = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    page: document.documentElement.scrollWidth,
+  }))
+  expect(widths.page).toBeLessThanOrEqual(widths.viewport)
+  await page.setViewportSize(viewport)
+}
+
 test('supports setup, lock, unlock, and accessible navigation', async ({ page }) => {
   await page.goto('/')
   await expectNoSeriousAccessibilityIssues(page)
@@ -50,6 +72,9 @@ test('supports setup, lock, unlock, and accessible navigation', async ({ page })
 
 test('loads every finance section without leaving the local app', async ({ page }) => {
   await createWorkspace(page)
+  const bottomNavigation = page.getByRole('navigation', {
+    name: 'Primary sections',
+  })
   const routes = [
     ['/transactions', 'Transactions'],
     ['/plan', 'Plan & cash flow'],
@@ -64,12 +89,190 @@ test('loads every finance section without leaving the local app', async ({ page 
   ] as const
 
   for (const [path, heading] of routes) {
+    await bottomNavigation.getByRole('button', { name: /More sections/u }).click()
     await page
+      .getByRole('dialog', { name: 'All sections' })
       .locator(`a[href="${path}"]`)
-      .first()
-      .evaluate((link: HTMLAnchorElement) => link.click())
+      .click()
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
   }
+})
+
+test('keeps the mobile shell and navigation on every viewport', async ({ page }) => {
+  await page.goto('/')
+  await expect(
+    page.getByRole('heading', { name: 'Create your private workspace' }),
+  ).toBeVisible()
+  const setupFrame = await page.locator('.auth-layout').boundingBox()
+  expect(setupFrame).not.toBeNull()
+  expect(setupFrame!.width).toBeLessThanOrEqual(520)
+  const setupColumns = await page
+    .locator('.auth-form .form-grid')
+    .evaluate(
+      (element) => getComputedStyle(element).gridTemplateColumns.split(' ').length,
+    )
+  expect(setupColumns).toBe(1)
+
+  await createWorkspace(page)
+  const shell = await page.locator('.app-frame').boundingBox()
+  const viewport = page.viewportSize()!
+  expect(shell).not.toBeNull()
+  expect(shell!.width).toBeLessThanOrEqual(520)
+  expect(shell!.x).toBeCloseTo((viewport.width - shell!.width) / 2, 0)
+
+  const bottomNavigation = page.getByRole('navigation', {
+    name: 'Primary sections',
+  })
+  await expect(bottomNavigation).toBeVisible()
+  const navigationBounds = await bottomNavigation.boundingBox()
+  expect(navigationBounds).not.toBeNull()
+  expect(navigationBounds!.y + navigationBounds!.height).toBeGreaterThanOrEqual(
+    viewport.height - 1,
+  )
+
+  await bottomNavigation.getByRole('link', { name: 'Plan & cash flow' }).click()
+  await expect(page.getByRole('heading', { name: 'Plan & cash flow' })).toBeVisible()
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+  await bottomNavigation.getByRole('link', { name: 'Transactions' }).click()
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
+  const more = bottomNavigation.getByRole('button', { name: /More sections/u })
+  await more.click()
+  const drawer = page.getByRole('dialog', { name: 'All sections' })
+  await expect(drawer).toBeVisible()
+  await expect(drawer.getByRole('button', { name: 'Close navigation' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(drawer).toBeHidden()
+  await expect(more).toBeFocused()
+  await more.click()
+  await drawer.getByRole('link', { name: 'Insurance' }).click()
+  await expect(
+    page.getByRole('heading', { name: 'Insurance', exact: true }),
+  ).toBeVisible()
+})
+
+test('fits every section at a narrow phone width', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-mobile')
+  await page.setViewportSize({ width: 320, height: 720 })
+  await createWorkspace(page)
+
+  const routes = [
+    ['/', 'Financial overview'],
+    ['/transactions', 'Transactions'],
+    ['/plan', 'Plan & cash flow'],
+    ['/net-worth', 'Net worth'],
+    ['/loans', 'Loans & credit'],
+    ['/investments', 'Investments'],
+    ['/insurance', 'Insurance'],
+    ['/goals', 'Goals'],
+    ['/reports', 'Reports'],
+    ['/alerts', 'Alerts'],
+    ['/settings', 'Settings'],
+  ] as const
+
+  for (const [path, heading] of routes) {
+    await page.getByRole('button', { name: 'Open navigation' }).click()
+    await page
+      .getByRole('dialog', { name: 'All sections' })
+      .locator(`a[href="${path}"]`)
+      .click()
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+    const overflow = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      document: document.documentElement.scrollWidth,
+    }))
+    expect(
+      overflow.document,
+      `${heading} has horizontal page overflow`,
+    ).toBeLessThanOrEqual(overflow.viewport)
+  }
+})
+
+test('keeps populated finance records readable on a phone', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-mobile')
+  await page.clock.setFixedTime(new Date('2026-09-24T12:00:00.000Z'))
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+  await createWorkspace(page)
+
+  const bottomNavigation = page.getByRole('navigation', {
+    name: 'Primary sections',
+  })
+  await bottomNavigation.getByRole('link', { name: 'Transactions' }).click()
+  await page.getByRole('button', { name: 'Add account' }).first().click()
+  await page.getByLabel('Account name').fill('Salary and household reserve account')
+  await page.getByLabel('Opening balance').fill('1234567.89')
+  await page.getByRole('dialog').getByRole('button', { name: 'Add account' }).click()
+  await page.getByRole('button', { name: 'Add transaction' }).first().click()
+  await page.getByLabel('Amount').fill('12500.75')
+  await page.getByLabel('Description').fill('Groceries for monthly household essentials')
+  await page.getByRole('dialog').getByRole('button', { name: 'Add transaction' }).click()
+  const ledger = page.getByRole('list', { name: 'Transactions' })
+  await expect(
+    ledger.getByRole('button', {
+      name: 'Edit Groceries for monthly household essentials',
+    }),
+  ).toBeVisible()
+  await expect(
+    ledger.getByRole('button', {
+      name: 'Delete Groceries for monthly household essentials',
+    }),
+  ).toBeVisible()
+  await dismissMessages(page)
+  await expect(page).toHaveScreenshot('activity-with-transactions.png', {
+    animations: 'disabled',
+    fullPage: true,
+  })
+  await expectPopulatedPhoneFits(page)
+
+  await bottomNavigation.getByRole('button', { name: /More sections/u }).click()
+  await page
+    .getByRole('dialog', { name: 'All sections' })
+    .getByRole('link', { name: 'Investments' })
+    .click()
+  await page.getByRole('button', { name: 'Add holding' }).first().click()
+  await page.getByLabel('Holding name').fill('Equity reserve fund')
+  await page.getByLabel('Units').fill('12.5')
+  await page.getByLabel('Average unit cost').fill('100')
+  await page.getByLabel('Current unit price').fill('110')
+  await page.getByRole('dialog').getByRole('button', { name: 'Add holding' }).click()
+  const holdings = page.getByRole('list', { name: 'Holdings' })
+  await expect(
+    holdings.getByRole('button', { name: 'Update price for Equity reserve fund' }),
+  ).toBeVisible()
+  await expect(
+    holdings.getByRole('button', { name: 'Edit Equity reserve fund' }),
+  ).toBeVisible()
+  await dismissMessages(page)
+  await expect(page).toHaveScreenshot('investments-with-holding.png', {
+    animations: 'disabled',
+    fullPage: true,
+  })
+  await expectPopulatedPhoneFits(page)
+
+  await bottomNavigation.getByRole('button', { name: /More sections/u }).click()
+  await page
+    .getByRole('dialog', { name: 'All sections' })
+    .getByRole('link', { name: 'Insurance' })
+    .click()
+  await page.getByRole('button', { name: 'Add policy' }).first().click()
+  await page.getByLabel('Insurer', { exact: true }).fill('Local health insurer')
+  await page.getByLabel('Policy name').fill('Family health cover')
+  await page.getByLabel('Cover amount').fill('1000000')
+  await page.getByLabel('Premium', { exact: true }).fill('12000')
+  await page.getByRole('dialog').getByRole('button', { name: 'Add policy' }).click()
+  const policies = page.getByRole('list', { name: 'Policies' })
+  await expect(
+    policies.getByRole('button', { name: 'Edit Family health cover' }),
+  ).toBeVisible()
+  await dismissMessages(page)
+  await expectNoSeriousAccessibilityIssues(page)
+  await expect(page).toHaveScreenshot('insurance-with-policy.png', {
+    animations: 'disabled',
+    fullPage: true,
+  })
+  await expectPopulatedPhoneFits(page)
 })
 
 test('records finance data and reloads without a network connection', async ({

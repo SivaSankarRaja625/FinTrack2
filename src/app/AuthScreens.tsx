@@ -67,31 +67,10 @@ function Brand() {
 function AuthFrame({ children }: { children: React.ReactNode }) {
   return (
     <main className="auth-layout">
-      <aside className="auth-context">
+      <header className="auth-topbar">
         <Brand />
-        <div className="auth-context-copy">
-          <span className="badge badge-positive">No account or network required</span>
-          <h1>Your financial records stay on this device.</h1>
-          <p>
-            Track income, expenses, debt, investments, policies, goals, and net worth in
-            one encrypted workspace.
-          </p>
-        </div>
-        <ul className="security-list">
-          <li>
-            <Icon name="lock" size={18} />
-            PIN-protected encrypted records
-          </li>
-          <li>
-            <Icon name="shield" size={18} />
-            No analytics, advertising, or remote APIs
-          </li>
-          <li>
-            <Icon name="backup" size={18} />
-            Portable encrypted backups
-          </li>
-        </ul>
-      </aside>
+        <p>No account or network required.</p>
+      </header>
       <section className="auth-panel">{children}</section>
     </main>
   )

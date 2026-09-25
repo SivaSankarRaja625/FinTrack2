@@ -125,7 +125,7 @@ export function NetWorthPage() {
         }
       />
 
-      <section className="page-grid">
+      <section className="page-grid metric-group">
         <div className="card card-body span-3">
           <Metric
             label="Net worth"

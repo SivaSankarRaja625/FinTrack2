@@ -107,7 +107,7 @@ export function InvestmentsPage() {
         }
       />
 
-      <section className="page-grid">
+      <section className="page-grid metric-group">
         <div className="card card-body span-3">
           <Metric
             label="Portfolio value"
@@ -157,91 +157,65 @@ export function InvestmentsPage() {
             }
           />
         ) : (
-          <div className="table-wrap">
-            <table className="data-table investment-table">
-              <thead>
-                <tr>
-                  <th>Holding</th>
-                  <th>Units</th>
-                  <th>Price</th>
-                  <th>Price date</th>
-                  <th className="amount-cell">Value</th>
-                  <th className="amount-cell">Gain</th>
-                  <th>
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.investments.map((holding) => {
-                  const value = holdingValue(holding)
-                  const gain = value - holding.investedPaise
-                  const stale =
-                    differenceInCalendarDays(
-                      parseISO(todayIso()),
-                      parseISO(holding.priceDate),
-                    ) > 30
-                  return (
-                    <tr
-                      key={holding.id}
-                      className={selected?.id === holding.id ? 'selected-row' : ''}
-                      onClick={() => setSelectedId(holding.id)}
-                    >
-                      <td>
-                        <strong>{holding.name}</strong>
-                        <small>
-                          {holding.symbol || typeLabel(holding.type)}
-                          {!holding.includeInNetWorth ? ' · excluded' : ''}
-                        </small>
-                      </td>
-                      <td className="tabular">{holding.units}</td>
-                      <td className="tabular">
-                        {formatMoney(holding.currentPricePaise)}
-                      </td>
-                      <td>
-                        {format(parseISO(holding.priceDate), 'dd MMM yyyy')}
-                        {stale ? (
-                          <small className="text-warning">Update needed</small>
-                        ) : null}
-                      </td>
-                      <td className="amount-cell tabular">{formatMoney(value)}</td>
-                      <td
-                        className={`amount-cell tabular ${gain >= 0 ? 'text-positive' : 'text-danger'}`}
-                      >
+          <ul className="record-list" aria-label="Holdings">
+            {data.investments.map((holding) => {
+              const value = holdingValue(holding)
+              const gain = value - holding.investedPaise
+              const stale =
+                differenceInCalendarDays(
+                  parseISO(todayIso()),
+                  parseISO(holding.priceDate),
+                ) > 30
+              return (
+                <li
+                  key={holding.id}
+                  className={`record-item${selected?.id === holding.id ? ' record-item-selected' : ''}`}
+                >
+                  <button
+                    type="button"
+                    className="record-select"
+                    aria-pressed={selected?.id === holding.id}
+                    onClick={() => setSelectedId(holding.id)}
+                  >
+                    <span className="record-title-line">
+                      <strong>{holding.name}</strong>
+                      <strong className="tabular">{formatMoney(value)}</strong>
+                    </span>
+                    <span className="record-meta">
+                      {holding.symbol || typeLabel(holding.type)} · {holding.units} units
+                      {!holding.includeInNetWorth ? ' · excluded' : ''}
+                    </span>
+                    <span className="record-meta">
+                      Price {formatMoney(holding.currentPricePaise)} on{' '}
+                      {format(parseISO(holding.priceDate), 'dd MMM yyyy')}
+                      {stale ? ' · Update needed' : ''} · Gain{' '}
+                      <span className={gain >= 0 ? 'text-positive' : 'text-danger'}>
                         {formatMoney(gain)}
-                      </td>
-                      <td>
-                        <div className="cluster cluster-tight">
-                          <button
-                            type="button"
-                            className="icon-button"
-                            aria-label={`Update price for ${holding.name}`}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              setPriceDialog(holding)
-                            }}
-                          >
-                            <Icon name="investment" size={17} />
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-button"
-                            aria-label={`Edit ${holding.name}`}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              setHoldingDialog(holding)
-                            }}
-                          >
-                            <Icon name="edit" size={17} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </span>
+                    </span>
+                  </button>
+                  <div className="record-actions">
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`Update price for ${holding.name}`}
+                      onClick={() => setPriceDialog(holding)}
+                    >
+                      <Icon name="investment" size={17} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`Edit ${holding.name}`}
+                      onClick={() => setHoldingDialog(holding)}
+                    >
+                      <Icon name="edit" size={17} />
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
         )}
       </section>
 

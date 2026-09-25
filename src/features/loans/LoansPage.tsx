@@ -100,7 +100,7 @@ export function LoansPage() {
         }
       />
 
-      <section className="page-grid">
+      <section className="page-grid metric-group">
         <div className="card card-body span-3">
           <Metric
             label="Loan outstanding"
