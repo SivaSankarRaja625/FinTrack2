@@ -18,6 +18,22 @@ data layer accesses Dexie.
 Persisted business records use stable IDs and schema-versioned encrypted envelopes.
 Money is integer paise. Fractional units and rates use decimal arithmetic.
 
+## Illustrative calculators
+
+`src/domain/calculators` is a pure, date-based cash-flow module. Bank deposit
+adapters take the user's nominal rate, payout and day-count terms; market
+adapters take an explicit assumed return path. Internal STP transfers move
+money between scenario accounts without creating new contributions. The shared
+ledger exposes dated events, external cash flows, gains, balances and warnings;
+comparisons use the same evaluation date, express inflation-adjusted values
+in the earliest scenario start date's rupees, and do not rank products.
+
+`/calculators` is lazy-loaded under More. Inputs and comparisons exist only in
+React memory and disappear when the application locks or leaves the screen.
+They do not add an encrypted database schema, backup content, live market
+data, or Android permissions. Scheme-specific government savings, pensions,
+bonds, protection and debt calculations require separate verified rule packs.
+
 ## Runtime profiles
 
 The browser build is an installable offline PWA for local or optional static use.

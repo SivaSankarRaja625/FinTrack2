@@ -36,6 +36,7 @@ const navigation: Array<{ label: string; items: NavigationItem[] }> = [
     items: [
       { to: '/reports', label: 'Reports', icon: 'reports' },
       { to: '/alerts', label: 'Alerts', icon: 'alerts' },
+      { to: '/calculators', label: 'Calculators', icon: 'investment' },
       { to: '/settings', label: 'Settings', icon: 'settings' },
     ],
   },

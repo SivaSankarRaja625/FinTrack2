@@ -5,6 +5,11 @@ India. It tracks accounts, transactions, budgets, cash flow, net worth, loans,
 investments, insurance, documents, goals, and deterministic alerts.
 The interface is designed for Android phones first; a wider browser or tablet
 centers the same compact app rather than expanding into a desktop dashboard.
+The **Calculators** section under More offers local what-if illustrations for
+bank deposits, investment contributions, transfers, withdrawals and financial
+goals. Rates and bank terms are entered by the user; market scenarios are not
+forecasts. Inputs and comparisons are cleared when the screen is left or the app
+locks and do not become saved financial records.
 
 ## Privacy model
 

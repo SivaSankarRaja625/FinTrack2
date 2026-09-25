@@ -24,6 +24,14 @@ FinTrack uses a calm, information-first interface.
 - Exact totals beside charts and a text/table alternative for every chart.
 - Purposeful empty, locked, loading, error, permission, and restore states.
 - Direct copy that explains the consequence and recovery action.
+- In calculators, distinguish contractual bank terms from hypothetical market
+  paths. Show entered assumptions, dated external money, transfers, withdrawals,
+  possible corpus depletion and an accessible schedule; label stale results
+  after an input changes.
+- Compare at a common evaluation date and label the shared purchasing-power
+  base date; show differences in funding, not a "best investment" badge. Use
+  editable copies of goals without changing saved records. Never prefill an
+  assumed investment return as a recommendation.
 
 ## Prohibited patterns
 

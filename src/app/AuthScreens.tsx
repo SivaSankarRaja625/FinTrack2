@@ -83,7 +83,7 @@ export function CheckingScreen() {
         <span className="badge">Checking encrypted storage</span>
         <h1>Opening FinTrack</h1>
         <p className="muted">No data leaves this device.</p>
-        <div className="loading-line" aria-label="Loading" />
+        <div className="loading-line" aria-hidden="true" />
       </div>
     </AuthFrame>
   )

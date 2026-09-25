@@ -38,6 +38,9 @@ const AlertsPage = lazy(async () => ({
 const SettingsPage = lazy(async () => ({
   default: (await import('./features/settings/SettingsPage')).SettingsPage,
 }))
+const CalculatorsPage = lazy(async () => ({
+  default: (await import('./features/calculators/CalculatorsPage')).CalculatorsPage,
+}))
 
 function FinanceApplication() {
   const { loading, error, refresh } = useFinance()
@@ -67,6 +70,7 @@ function FinanceApplication() {
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/calculators" element={<CalculatorsPage />} />
         </Routes>
       </Suspense>
     </AppShell>

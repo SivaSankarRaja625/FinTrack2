@@ -381,6 +381,151 @@
   gap: 16px;
 }
 
+.calculator-page,
+.calculator-form,
+.calculator-result,
+.calculator-compare,
+.calculator-scenario,
+.calculator-comparison {
+  min-width: 0;
+}
+
+.calculator-page .notice-warning {
+  color: color-mix(in srgb, var(--warning) 94%, var(--text));
+}
+
+.calculator-form,
+.calculator-result,
+.calculator-compare,
+.calculator-scenario,
+.calculator-comparison {
+  display: grid;
+  gap: 16px;
+}
+
+.calculator-form h2,
+.calculator-result h2,
+.calculator-compare h2 {
+  margin: 0;
+}
+
+.calculator-fieldset {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.calculator-fieldset legend {
+  padding-inline: 6px;
+  font-weight: 700;
+}
+
+.calculator-fieldset > *,
+.calculator-fieldset .field,
+.calculator-form .field {
+  min-width: 0;
+}
+
+.calculator-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.calculator-metrics .metric-value,
+.calculator-comparison dd,
+.calculator-saved span {
+  overflow-wrap: anywhere;
+}
+
+.calculator-list {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+
+.calculator-schedule {
+  min-width: 0;
+}
+
+.calculator-schedule summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.calculator-schedule .table-wrap {
+  margin-top: 12px;
+}
+
+.calculator-schedule caption {
+  padding: 12px;
+  text-align: left;
+  font-weight: 650;
+}
+
+.calculator-schedule .data-table {
+  min-width: 440px;
+}
+
+.calculator-saved {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.calculator-saved li {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.calculator-comparison-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.calculator-comparison-card dl {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+
+.calculator-comparison-card dt {
+  margin-top: 9px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.calculator-comparison-card dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+@media (max-width: 359px) {
+  .calculator-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 900px) {
+  .calculator-form .calculator-fieldset,
+  .calculator-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .page > *,
 .page-grid > *,
 .card-header > div {
