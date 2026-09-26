@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 
 import { useFinance } from '../../app/FinanceContext'
 import { useSecurity } from '../../app/SecurityContext'
-import { readCompleteBackup } from '../../data/backup'
+import { inspectCompleteBackup } from '../../data/backup'
+import { toArrayBuffer } from '../../data/encoding'
 import { entityTimestamps, newId } from '../../domain/id'
 import { paiseToRupees, rupeesToPaise } from '../../domain/money'
 import type { AppSettings, Category, UserProfile } from '../../domain/types'
@@ -15,7 +16,7 @@ import {
   requestPersistentStorage,
 } from '../../platform/files'
 import { getSystemBackupCapability } from '../../platform/system-backup'
-import { ConfirmDialog } from '../../ui/Dialog'
+import { ConfirmDialog, Dialog } from '../../ui/Dialog'
 import { Icon } from '../../ui/Icon'
 import { PageHeader } from '../../ui/Page'
 import { useToast } from '../../ui/Toast'
@@ -33,12 +34,20 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
 }
 
+async function fileFingerprint(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', toArrayBuffer(bytes))
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('')
+}
+
 export function SettingsPage() {
   const {
     data,
     attachmentMetadata,
     save,
     exportCompleteBackup,
+    verifyCompleteBackup,
     restoreCompleteBackup,
     setAndroidBackup,
   } = useFinance()
@@ -68,8 +77,12 @@ export function SettingsPage() {
   const [exportPin, setExportPin] = useState('')
   const [confirmExportPin, setConfirmExportPin] = useState('')
   const [restoreFile, setRestoreFile] = useState<File | null>(null)
+  const [verifyFile, setVerifyFile] = useState<File | null>(null)
+  const [verifyPin, setVerifyPin] = useState('')
   const [restorePin, setRestorePin] = useState('')
   const [safetyPin, setSafetyPin] = useState('')
+  const [safetyFile, setSafetyFile] = useState<File | null>(null)
+  const [safetyFingerprint, setSafetyFingerprint] = useState<string | null>(null)
   const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
   const [wipeText, setWipeText] = useState('')
   const [wipeOpen, setWipeOpen] = useState(false)
@@ -230,8 +243,8 @@ export function SettingsPage() {
       setConfirmExportPin('')
       notify(
         result === 'shared'
-          ? 'Complete encrypted backup ready to save or share'
-          : 'Complete encrypted backup downloaded',
+          ? 'Share sheet closed. FinTrack cannot confirm a copy was saved; reopen the saved file to verify it.'
+          : 'Backup download started. Reopen the saved file to confirm it is recoverable.',
       )
     } catch (error) {
       notify(
@@ -243,26 +256,85 @@ export function SettingsPage() {
     }
   }
 
-  const restoreBackup = async () => {
-    if (!restoreFile) return
-    setBusy('restore')
+  const verifyBackup = async () => {
+    if (!verifyFile) return
+    setBusy('verify')
+    try {
+      const summary = await verifyCompleteBackup(
+        await readFileBytes(verifyFile),
+        verifyPin,
+      )
+      setVerifyPin('')
+      setVerifyFile(null)
+      notify(
+        summary.createdAt
+          ? 'Saved backup authenticated and validated without replacing your data'
+          : 'Legacy backup validated; its creation date cannot be authenticated',
+      )
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : 'Backup verification failed',
+        'error',
+      )
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const closeRestore = () => {
+    setRestoreConfirmOpen(false)
+    setSafetyFile(null)
+    setSafetyFingerprint(null)
+  }
+
+  const prepareSafetyBackup = async () => {
+    if (!restoreFile) {
+      notify('Choose a backup to restore', 'error')
+      return
+    }
+    setBusy('safety')
     try {
       if (!validPin(safetyPin)) {
         throw new Error('Choose a strong PIN for the safety backup')
       }
-      const bytes = await readFileBytes(restoreFile)
-      await readCompleteBackup(bytes, restorePin)
+      await inspectCompleteBackup(await readFileBytes(restoreFile), restorePin)
       const safety = await exportCompleteBackup(safetyPin)
+      const fingerprint = await fileFingerprint(safety)
       await downloadBytes(
         safety,
         `fintrack-before-restore-${format(new Date(), 'yyyy-MM-dd-HHmm')}.finapp`,
         'application/octet-stream',
       )
+      setSafetyFingerprint(fingerprint)
+      notify('Reopen the saved safety file to verify it before replacing any data')
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : 'Safety backup could not be exported',
+        'error',
+      )
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const restoreBackup = async () => {
+    if (!restoreFile || !safetyFile || !safetyFingerprint) {
+      notify('Reopen the saved safety file before restoring', 'error')
+      return
+    }
+    setBusy('restore')
+    try {
+      const safetyBytes = await readFileBytes(safetyFile)
+      if ((await fileFingerprint(safetyBytes)) !== safetyFingerprint) {
+        throw new Error('The selected safety file is not the copy just exported')
+      }
+      await inspectCompleteBackup(safetyBytes, safetyPin, profile)
+      const bytes = await readFileBytes(restoreFile)
       await restoreCompleteBackup(bytes, restorePin)
       setRestoreFile(null)
       setRestorePin('')
       setSafetyPin('')
-      setRestoreConfirmOpen(false)
+      closeRestore()
       notify('Backup restored and current data replaced')
     } catch (error) {
       notify(
@@ -728,13 +800,13 @@ export function SettingsPage() {
                       Includes all structured records and encrypted policy documents.
                     </p>
                   </div>
-                  {settings.lastManualBackupAt ? (
+                  {settings.verifiedBackup?.createdAt ? (
                     <span className="badge badge-positive">
-                      Last created{' '}
-                      {format(new Date(settings.lastManualBackupAt), 'dd MMM yyyy')}
+                      Verified file dated{' '}
+                      {format(new Date(settings.verifiedBackup.createdAt), 'dd MMM yyyy')}
                     </span>
                   ) : (
-                    <span className="badge badge-danger">No backup recorded</span>
+                    <span className="badge badge-danger">No dated backup verified</span>
                   )}
                 </header>
                 <div className="settings-form">
@@ -760,7 +832,8 @@ export function SettingsPage() {
                   </label>
                   <p className="field-hint field-span">
                     This PIN cannot be reset. Store the exported file away from this
-                    device.
+                    device. Exporting or opening the share sheet does not prove the file
+                    was saved.
                   </p>
                   <div className="settings-save field-span">
                     <button
@@ -773,6 +846,68 @@ export function SettingsPage() {
                       {busy === 'export' ? 'Encrypting…' : 'Export complete backup'}
                     </button>
                   </div>
+                </div>
+              </section>
+
+              <section className="card">
+                <header className="card-header">
+                  <div>
+                    <h2>Verify a saved backup</h2>
+                    <p className="muted">
+                      Reopen the file you saved, enter its PIN and check its records and
+                      documents without restoring them.
+                    </p>
+                  </div>
+                </header>
+                <div className="settings-form">
+                  <label className="field field-span">
+                    <span>Saved .finapp file to verify</span>
+                    <input
+                      className="input"
+                      type="file"
+                      accept=".finapp,application/octet-stream"
+                      onChange={(event) => setVerifyFile(event.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Saved backup PIN</span>
+                    <input
+                      className="input"
+                      type="password"
+                      value={verifyPin}
+                      onChange={(event) => setVerifyPin(event.target.value)}
+                    />
+                  </label>
+                  <div className="settings-save field-span">
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      disabled={!verifyFile || !verifyPin || busy === 'verify'}
+                      onClick={() => void verifyBackup()}
+                    >
+                      {busy === 'verify' ? 'Verifying…' : 'Verify saved backup'}
+                    </button>
+                  </div>
+                </div>
+                <div className="card-body">
+                  {settings.verifiedBackup ? (
+                    <p>
+                      Last checked{' '}
+                      {format(
+                        new Date(settings.verifiedBackup.verifiedAt),
+                        'dd MMM yyyy, HH:mm',
+                      )}
+                      : {settings.verifiedBackup.recordCount} records and{' '}
+                      {settings.verifiedBackup.attachmentCount} documents.
+                      {settings.verifiedBackup.createdAt
+                        ? ` File created ${format(new Date(settings.verifiedBackup.createdAt), 'dd MMM yyyy')}.`
+                        : ' Legacy file: creation date cannot be verified; export a new backup.'}
+                    </p>
+                  ) : (
+                    <p className="muted">
+                      No saved file has been checked on this installation.
+                    </p>
+                  )}
                 </div>
               </section>
 
@@ -793,9 +928,11 @@ export function SettingsPage() {
                       className="input"
                       type="file"
                       accept=".finapp,application/octet-stream"
-                      onChange={(event) =>
+                      onChange={(event) => {
                         setRestoreFile(event.target.files?.[0] ?? null)
-                      }
+                        setSafetyFingerprint(null)
+                        setSafetyFile(null)
+                      }}
                     />
                   </label>
                   <label className="field">
@@ -970,18 +1107,63 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <ConfirmDialog
+      <Dialog
         open={restoreConfirmOpen}
         title="Replace all current data?"
-        description="The selected backup will be authenticated and validated. A complete safety backup of the current workspace will be exported first; then records and documents will be replaced together."
-        confirmLabel={
-          busy === 'restore' ? 'Restoring…' : 'Create safety backup and restore'
+        description="Authenticate the candidate, save a complete safety backup of current data, and reopen that same saved file before replacing records and documents."
+        onClose={closeRestore}
+        footer={
+          <div className="cluster cluster-between" style={{ width: '100%' }}>
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={closeRestore}
+            >
+              Cancel
+            </button>
+            {safetyFingerprint ? (
+              <button
+                type="button"
+                className="button button-danger"
+                disabled={!safetyFile || busy !== null}
+                onClick={() => void restoreBackup()}
+              >
+                {busy === 'restore' ? 'Restoring…' : 'Verify safety copy and restore'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="button"
+                disabled={busy !== null}
+                onClick={() => void prepareSafetyBackup()}
+              >
+                {busy === 'safety' ? 'Exporting…' : 'Create safety backup'}
+              </button>
+            )}
+          </div>
         }
-        tone="danger"
-        busy={busy === 'restore'}
-        onConfirm={() => void restoreBackup()}
-        onClose={() => setRestoreConfirmOpen(false)}
-      />
+      >
+        {safetyFingerprint ? (
+          <label className="field">
+            <span>Saved safety-backup file</span>
+            <input
+              className="input"
+              type="file"
+              accept=".finapp,application/octet-stream"
+              onChange={(event) => setSafetyFile(event.target.files?.[0] ?? null)}
+            />
+            <small>
+              Choose the copy just saved from the download or Android share sheet. The
+              selected file must match byte-for-byte and authenticate with the safety PIN.
+            </small>
+          </label>
+        ) : (
+          <p>
+            Nothing will be replaced until you choose the saved safety copy and confirm
+            this second step. Closing a share sheet alone does not prove it was saved.
+          </p>
+        )}
+      </Dialog>
       <ConfirmDialog
         open={wipeOpen}
         title="Erase this encrypted workspace?"

@@ -62,28 +62,26 @@ export function validateRelations(
       throw new Error(`Recurring item “${recurring.name}” has no source account`)
     }
 
-    for (const loan of data.loans) {
-      if (loan.accountId && !accountIds.has(loan.accountId)) {
-        throw new Error(`Loan “${loan.name}” references a missing account`)
-      }
-    }
-
-    for (const holding of data.investments) {
-      if (holding.accountId && !accountIds.has(holding.accountId)) {
-        throw new Error(`Holding “${holding.name}” references a missing account`)
-      }
-    }
-
-    for (const goal of data.goals) {
-      if (goal.linkedAccountId && !accountIds.has(goal.linkedAccountId)) {
-        throw new Error(`Goal “${goal.name}” references a missing account`)
-      }
-    }
     if (
       recurring.destinationAccountId &&
       !accountIds.has(recurring.destinationAccountId)
     ) {
       throw new Error(`Recurring item “${recurring.name}” has no destination account`)
+    }
+  }
+  for (const loan of data.loans) {
+    if (loan.accountId && !accountIds.has(loan.accountId)) {
+      throw new Error(`Loan “${loan.name}” references a missing account`)
+    }
+  }
+  for (const holding of data.investments) {
+    if (holding.accountId && !accountIds.has(holding.accountId)) {
+      throw new Error(`Holding “${holding.name}” references a missing account`)
+    }
+  }
+  for (const goal of data.goals) {
+    if (goal.linkedAccountId && !accountIds.has(goal.linkedAccountId)) {
+      throw new Error(`Goal “${goal.name}” references a missing account`)
     }
   }
 

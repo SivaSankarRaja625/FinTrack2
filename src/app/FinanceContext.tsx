@@ -9,13 +9,21 @@ import {
   type ReactNode,
 } from 'react'
 
+import { Capacitor } from '@capacitor/core'
+import { App as CapacitorApp } from '@capacitor/app'
+
 import type { Attachment } from '../data/attachments'
-import { attachmentFromBackup, readCompleteBackup } from '../data/backup'
+import {
+  attachmentFromBackup,
+  inspectCompleteBackup,
+  readCompleteBackup,
+} from '../data/backup'
 import { validateRelations } from '../data/invariants'
 import { createSystemSnapshot } from '../data/system-snapshot'
 import type { Workspace } from '../data/workspace'
 import { evaluateAlerts } from '../domain/alerts'
 import { emptyFinanceData } from '../domain/defaults'
+import { todayIso } from '../domain/dates'
 import { entityTimestamps, newId, nowIso } from '../domain/id'
 import { validateFinanceData } from '../domain/schemas'
 import type {
@@ -66,6 +74,14 @@ interface FinanceContextValue {
   getAttachment: (id: string) => Promise<Attachment | null>
   deleteAttachment: (id: string) => Promise<void>
   exportCompleteBackup: (pin: string) => Promise<Uint8Array>
+  verifyCompleteBackup: (
+    bytes: Uint8Array,
+    pin: string,
+  ) => Promise<{
+    createdAt: string | null
+    recordCount: number
+    attachmentCount: number
+  }>
   restoreCompleteBackup: (bytes: Uint8Array, pin: string) => Promise<void>
   setAndroidBackup: (enabled: boolean) => Promise<void>
   dismissAlert: (alert: FinanceAlert) => Promise<void>
@@ -135,8 +151,12 @@ export function FinanceProvider({
     scheduled: 0,
     error: null,
   })
+  const [clock, setClock] = useState(() => new Date())
+  const currentDayRef = useRef(todayIso(clock))
   const dataRef = useRef(data)
   const snapshotTimer = useRef<number | null>(null)
+  const lastResume = useRef(0)
+  const timeZoneOffset = useRef(new Date().getTimezoneOffset())
 
   useEffect(() => {
     dataRef.current = data
@@ -242,6 +262,26 @@ export function FinanceProvider({
           settings,
           requestPermission,
         )
+        if (result.scheduledCatchUpKeys?.length) {
+          const latest = currentSettings(dataRef.current)
+          if (!latest) throw new Error('Application settings are not available')
+          const newKeys = result.scheduledCatchUpKeys.filter(
+            (key) => !latest.notificationCatchUps?.includes(key),
+          )
+          if (newKeys.length > 0) {
+            const updated: AppSettings = {
+              ...latest,
+              notificationCatchUps: [
+                ...new Set([...(latest.notificationCatchUps ?? []), ...newKeys]),
+              ].slice(-500),
+              ...entityTimestamps(latest),
+            }
+            await workspace.records.put('settings', updated)
+            dataRef.current = replaceEntity(dataRef.current, 'settings', updated)
+            setData(dataRef.current)
+            scheduleSystemSnapshot()
+          }
+        }
         const next = { ...result, error: null }
         setNotificationStatus(next)
         return next
@@ -250,17 +290,17 @@ export function FinanceProvider({
           caught instanceof Error
             ? `Notifications could not be scheduled: ${caught.message}`
             : 'Notifications could not be scheduled'
-        const next: NotificationStatus = {
-          supported: true,
-          permission: 'denied',
+        const failed: NotificationStatus = {
+          supported: Capacitor.isNativePlatform(),
+          permission: 'unknown',
           scheduled: 0,
           error: message,
         }
-        setNotificationStatus(next)
-        return next
+        setNotificationStatus(failed)
+        return failed
       }
     },
-    [],
+    [scheduleSystemSnapshot, workspace],
   )
 
   useEffect(() => {
@@ -270,6 +310,55 @@ export function FinanceProvider({
     }, 500)
     return () => window.clearTimeout(timer)
   }, [data, syncNotifications])
+
+  useEffect(() => {
+    const tick = (resumed: boolean) => {
+      if (document.visibilityState === 'hidden') return
+      const now = new Date()
+      const offset = now.getTimezoneOffset()
+      const today = todayIso(now)
+      const changed = offset !== timeZoneOffset.current || today !== currentDayRef.current
+      currentDayRef.current = today
+      if (!changed && (!resumed || Date.now() - lastResume.current < 5_000)) {
+        return
+      }
+      setClock(now)
+      timeZoneOffset.current = offset
+      lastResume.current = Date.now()
+      if (currentSettings(dataRef.current)) void syncNotifications(false)
+    }
+    const onResume = () => tick(true)
+    const interval = window.setInterval(() => tick(false), 60_000)
+    window.addEventListener('focus', onResume)
+    document.addEventListener('visibilitychange', onResume)
+    let disposed = false
+    let nativeHandle: { remove: () => Promise<void> } | null = null
+    if (Capacitor.isNativePlatform()) {
+      void CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) tick(true)
+      })
+        .then((handle) => {
+          if (disposed) void handle.remove()
+          else nativeHandle = handle
+        })
+        .catch((caught: unknown) => {
+          setNotificationStatus((previous) => ({
+            ...previous,
+            error:
+              caught instanceof Error
+                ? `Resume reminders could not be monitored: ${caught.message}`
+                : 'Resume reminders could not be monitored',
+          }))
+        })
+    }
+    return () => {
+      disposed = true
+      window.clearInterval(interval)
+      window.removeEventListener('focus', onResume)
+      document.removeEventListener('visibilitychange', onResume)
+      if (nativeHandle) void nativeHandle.remove()
+    }
+  }, [syncNotifications])
 
   const save = useCallback(
     async <K extends CollectionName>(collection: K, entity: FinanceData[K][number]) => {
@@ -340,20 +429,29 @@ export function FinanceProvider({
   )
 
   const exportCompleteBackup = useCallback(
-    async (pin: string) => {
-      const settings = currentSettings(dataRef.current)
-      if (settings) {
-        const updated: AppSettings = {
-          ...settings,
-          lastManualBackupAt: new Date().toISOString(),
-          ...entityTimestamps(settings),
-        }
-        await workspace.records.put('settings', updated)
-        setData((current) => replaceEntity(current, 'settings', updated))
-      }
-      return workspace.exportComplete(pin)
-    },
+    (pin: string) => workspace.exportComplete(pin),
     [workspace],
+  )
+
+  const verifyCompleteBackup = useCallback(
+    async (bytes: Uint8Array, pin: string) => {
+      const profile = dataRef.current.profiles[0]
+      const settings = currentSettings(dataRef.current)
+      if (!profile || !settings) {
+        throw new Error('The current workspace is not available for verification')
+      }
+      const summary = await inspectCompleteBackup(bytes, pin, profile)
+      await save('settings', {
+        ...settings,
+        verifiedBackup: {
+          ...summary,
+          verifiedAt: new Date().toISOString(),
+        },
+        ...entityTimestamps(settings),
+      })
+      return summary
+    },
+    [save],
   )
 
   const restoreCompleteBackup = useCallback(
@@ -513,8 +611,8 @@ export function FinanceProvider({
   const settings = currentSettings(data)
   const profile = data.profiles[0] ?? null
   const alerts = useMemo(
-    () => (settings ? evaluateAlerts(data, settings, profile) : []),
-    [data, profile, settings],
+    () => (settings ? evaluateAlerts(data, settings, profile, clock) : []),
+    [clock, data, profile, settings],
   )
 
   const value = useMemo<FinanceContextValue>(
@@ -533,6 +631,7 @@ export function FinanceProvider({
       getAttachment,
       deleteAttachment,
       exportCompleteBackup,
+      verifyCompleteBackup,
       restoreCompleteBackup,
       setAndroidBackup,
       dismissAlert,
@@ -553,6 +652,7 @@ export function FinanceProvider({
       dismissAlert,
       error,
       exportCompleteBackup,
+      verifyCompleteBackup,
       getAttachment,
       loading,
       notificationStatus,

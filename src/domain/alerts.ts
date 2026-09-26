@@ -9,6 +9,9 @@ import {
 } from './calculations'
 import { currentMonthRange, daysUntil, isDateInRange, todayIso } from './dates'
 import { formatMoney, percentageOf } from './money'
+import { cardReminders, policyReminders } from './reminders'
+import { evaluateProtectionReviews } from './reviews'
+import { calculateEmergencyReserve } from './resilience'
 import type {
   AppSettings,
   FinanceAlert,
@@ -125,48 +128,39 @@ export function evaluateAlerts(
     }
   }
 
-  for (const policy of data.insurancePolicies.filter((item) => item.active)) {
-    const days = daysUntil(policy.nextPremiumDate, now)
-    if (days <= settings.notificationLeadDays) {
+  for (const policy of data.insurancePolicies) {
+    for (const reminder of policyReminders(policy, settings)) {
+      const days = daysUntil(reminder.date, now)
+      if (days > Math.max(...reminder.leadDays)) continue
       alerts.push({
-        key: `insurance:${policy.id}:${policy.nextPremiumDate}`,
-        ruleType: 'insurance-due',
-        title:
-          days < 0
-            ? `${policy.policyName} premium is overdue`
-            : `${policy.policyName} premium is due soon`,
+        key: reminder.key,
+        ruleType: reminder.ruleType,
+        title: reminder.title,
         detail:
           days < 0
-            ? `The scheduled date was ${policy.nextPremiumDate}.`
-            : `${formatMoney(policy.premiumPaise)} is due in ${days} day${days === 1 ? '' : 's'}.`,
+            ? `The recorded date ${reminder.date} passed. ${reminder.detail}`
+            : reminder.detail,
         severity: dueSeverity(days),
-        dueDate: policy.nextPremiumDate,
-        route: '/insurance',
-        evidence: `${policy.insurer} · Policy ending ${policy.policyNumber.slice(-4) || 'not set'}.`,
+        dueDate: reminder.date,
+        route: reminder.route,
+        evidence: reminder.evidence,
       })
     }
+  }
 
-    for (const [kind, date] of [
-      ['renewal', policy.renewalDate],
-      ['maturity', policy.maturityDate],
-    ] as const) {
-      if (!date) continue
-      const eventDays = daysUntil(date, now)
-      if (eventDays > settings.notificationLeadDays) continue
-      alerts.push({
-        key: `insurance-${kind}:${policy.id}:${date}`,
-        ruleType: 'insurance-due',
-        title: `${policy.policyName} ${kind} ${eventDays < 0 ? 'date passed' : 'is approaching'}`,
-        detail:
-          eventDays < 0
-            ? `The recorded ${kind} date was ${date}.`
-            : `${kind.charAt(0).toUpperCase() + kind.slice(1)} is in ${eventDays} day${eventDays === 1 ? '' : 's'}.`,
-        severity: dueSeverity(eventDays),
-        dueDate: date,
-        route: '/insurance',
-        evidence: `${policy.insurer} · ${kind} date ${date}.`,
-      })
-    }
+  for (const reminder of cardReminders(data, settings)) {
+    const days = daysUntil(reminder.date, now)
+    if (days > Math.max(...reminder.leadDays)) continue
+    alerts.push({
+      key: reminder.key,
+      ruleType: reminder.ruleType,
+      title: reminder.title,
+      detail: reminder.detail,
+      severity: dueSeverity(days),
+      dueDate: reminder.date,
+      route: reminder.route,
+      evidence: reminder.evidence,
+    })
   }
 
   for (const rule of data.recurringRules.filter((item) => item.active)) {
@@ -263,26 +257,21 @@ export function evaluateAlerts(
   }
 
   if (profile) {
-    const liquidPaise = data.accounts
-      .filter(
-        (account) =>
-          !account.archived && ['cash', 'savings', 'current'].includes(account.type),
-      )
-      .reduce(
-        (sum, account) => sum + Math.max(0, accountBalances.get(account.id) ?? 0),
-        0,
-      )
-    const requiredFund = profile.essentialMonthlyPaise * profile.emergencyFundMonths
-    if (requiredFund > 0 && liquidPaise < requiredFund) {
+    const reserve = calculateEmergencyReserve(data, profile, now)
+    const availablePaise = reserve.immediatePaise + reserve.secondaryPaise
+    if (reserve.targetPaise > 0 && availablePaise < reserve.targetPaise) {
       alerts.push({
         key: `emergency-fund:${today.slice(0, 7)}`,
         ruleType: 'emergency-fund',
         title: 'Emergency fund is below target',
-        detail: `${percentageOf(liquidPaise, requiredFund).toFixed(0)}% of the configured reserve is available.`,
-        severity: liquidPaise < profile.essentialMonthlyPaise ? 'warning' : 'info',
+        detail: reserve.designated
+          ? `${percentageOf(availablePaise, reserve.targetPaise).toFixed(0)}% of the configured reserve is designated; second-line holdings are not immediate cash.`
+          : 'No accessible accounts or holdings are designated as emergency reserves.',
+        severity:
+          reserve.immediatePaise < profile.essentialMonthlyPaise ? 'warning' : 'info',
         dueDate: null,
-        route: '/goals',
-        evidence: `${formatMoney(liquidPaise)} available against ${formatMoney(requiredFund)} target.`,
+        route: '/resilience',
+        evidence: `${formatMoney(reserve.immediatePaise)} immediate and ${formatMoney(reserve.secondaryPaise)} second-line against ${formatMoney(reserve.targetPaise)} target.`,
       })
     }
 
@@ -332,22 +321,24 @@ export function evaluateAlerts(
     })
   }
 
+  const backupCreatedAt = settings.verifiedBackup?.createdAt
   if (
-    settings.lastManualBackupAt === null ||
-    differenceInCalendarDays(now, new Date(settings.lastManualBackupAt)) > 30
+    !backupCreatedAt ||
+    differenceInCalendarDays(now, new Date(backupCreatedAt)) > 30 ||
+    new Date(backupCreatedAt).getTime() > now.getTime()
   ) {
     alerts.push({
       key: `backup:${today.slice(0, 7)}`,
       ruleType: 'backup-due',
       title: 'Complete backup is due',
-      detail:
-        settings.lastManualBackupAt === null
-          ? 'No complete encrypted backup is recorded on this device.'
-          : 'The last complete encrypted backup is more than 30 days old.',
+      detail: !backupCreatedAt
+        ? 'No saved complete backup has been verified on this device.'
+        : 'The last verified complete backup is old or dated in the future.',
       severity: 'warning',
       dueDate: null,
       route: '/settings',
-      evidence: 'Android system backup excludes policy documents.',
+      evidence:
+        'Export a file, save it away from the device, then reopen it in Settings to verify. Android backup excludes documents.',
     })
   }
 
@@ -372,6 +363,8 @@ export function evaluateAlerts(
       })
     }
   }
+
+  alerts.push(...evaluateProtectionReviews(data, settings, now))
 
   const snoozedKeys = new Set(
     settings.snoozedAlerts

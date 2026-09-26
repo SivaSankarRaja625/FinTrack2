@@ -1,24 +1,17 @@
 import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
-import { parseISO, subDays } from 'date-fns'
 
 import type { AppSettings, FinanceData } from '../domain/types'
+import { collectDatedReminders, planScheduledReminders } from '../domain/reminders'
 
 export type NotificationPermissionState =
-  'unsupported' | 'prompt' | 'prompt-with-rationale' | 'granted' | 'denied'
+  'unsupported' | 'unknown' | 'prompt' | 'prompt-with-rationale' | 'granted' | 'denied'
 
 export interface NotificationSyncResult {
   supported: boolean
   permission: NotificationPermissionState
   scheduled: number
-}
-
-interface DatedNotification {
-  key: string
-  title: string
-  body: string
-  date: string
-  route: string
+  scheduledCatchUpKeys?: string[]
 }
 
 function notificationId(key: string): number {
@@ -27,63 +20,6 @@ function notificationId(key: string): number {
     hash = (Math.imul(hash, 31) + key.charCodeAt(index)) | 0
   }
   return hash & 0x7fffffff || 1
-}
-
-function scheduledTime(date: string, leadDays: number, quietHoursEnd: string): Date {
-  const result = subDays(parseISO(date), leadDays)
-  const [hour = 8, minute = 0] = quietHoursEnd.split(':').map(Number)
-  result.setHours(hour, minute, 0, 0)
-  return result
-}
-
-function collectNotifications(data: FinanceData): DatedNotification[] {
-  const notifications: DatedNotification[] = []
-  for (const loan of data.loans.filter((item) => item.active)) {
-    notifications.push({
-      key: `loan:${loan.id}:${loan.nextPaymentDate}`,
-      title: `${loan.name} EMI due`,
-      body: 'Open FinTrack to review the scheduled payment.',
-      date: loan.nextPaymentDate,
-      route: '/loans',
-    })
-  }
-  for (const policy of data.insurancePolicies.filter((item) => item.active)) {
-    notifications.push({
-      key: `insurance:${policy.id}:${policy.nextPremiumDate}`,
-      title: `${policy.policyName} premium due`,
-      body: 'Open FinTrack to review the premium details.',
-      date: policy.nextPremiumDate,
-      route: '/insurance',
-    })
-    if (policy.renewalDate) {
-      notifications.push({
-        key: `insurance-renewal:${policy.id}:${policy.renewalDate}`,
-        title: `${policy.policyName} renewal approaching`,
-        body: 'Open FinTrack to review the recorded renewal date.',
-        date: policy.renewalDate,
-        route: '/insurance',
-      })
-    }
-    if (policy.maturityDate) {
-      notifications.push({
-        key: `insurance-maturity:${policy.id}:${policy.maturityDate}`,
-        title: `${policy.policyName} maturity approaching`,
-        body: 'Open FinTrack to review the recorded maturity date.',
-        date: policy.maturityDate,
-        route: '/insurance',
-      })
-    }
-  }
-  for (const rule of data.recurringRules.filter((item) => item.active)) {
-    notifications.push({
-      key: `recurring:${rule.id}:${rule.nextDate}`,
-      title: `${rule.name} due`,
-      body: 'Open FinTrack to review this recurring item.',
-      date: rule.nextDate,
-      route: '/plan',
-    })
-  }
-  return notifications
 }
 
 export async function syncLocalNotifications(
@@ -104,9 +40,36 @@ export async function syncLocalNotifications(
   const owned = pending.notifications.filter(
     (notification) => notification.extra?.source === 'finapp',
   )
-  if (owned.length > 0) {
+  const now = new Date()
+  const reminders = collectDatedReminders(data, settings)
+  const activeKeys = new Set(reminders.map((reminder) => reminder.key))
+  const preserved =
+    settings.notificationsEnabled && permission === 'granted'
+      ? owned.filter((notification) => {
+          const key = String(notification.extra?.key)
+          if (!activeKeys.has(key) || !settings.notificationCatchUps?.includes(key)) {
+            return false
+          }
+          if (notification.extra?.stage === 'snoozed') {
+            return settings.snoozedAlerts.some(
+              (entry) =>
+                entry.key === key && entry.until === notification.extra?.snoozedUntil,
+            )
+          }
+          return (
+            notification.extra?.stage === 'catch-up' &&
+            !settings.snoozedAlerts.some(
+              (entry) =>
+                entry.key === key && new Date(entry.until).getTime() > now.getTime(),
+            )
+          )
+        })
+      : []
+  const preservedIds = new Set(preserved.map((notification) => notification.id))
+  const toCancel = owned.filter((notification) => !preservedIds.has(notification.id))
+  if (toCancel.length > 0) {
     await LocalNotifications.cancel({
-      notifications: owned.map((notification) => ({ id: notification.id })),
+      notifications: toCancel.map((notification) => ({ id: notification.id })),
     })
   }
   if (!settings.notificationsEnabled || permission !== 'granted') {
@@ -120,25 +83,36 @@ export async function syncLocalNotifications(
     importance: 3,
     visibility: 0,
   })
-  const now = new Date()
-  const notifications = collectNotifications(data)
-    .map((item) => {
-      const at = scheduledTime(
-        item.date,
-        settings.notificationLeadDays,
-        settings.quietHoursEnd,
-      )
-      return {
-        title: item.title,
-        body: item.body,
-        id: notificationId(item.key),
-        channelId: 'finance-reminders',
-        isExactNotification: false,
-        schedule: { at },
-        extra: { source: 'finapp', route: item.route, key: item.key },
-      }
-    })
-    .filter((notification) => notification.schedule.at.getTime() > now.getTime())
+  const planned = planScheduledReminders(
+    reminders,
+    now,
+    settings.quietHoursStart,
+    settings.quietHoursEnd,
+  )
+    .filter(
+      (item) =>
+        (item.stage !== 'catch-up' ||
+          !settings.notificationCatchUps?.includes(item.key)) &&
+        !preservedIds.has(notificationId(`${item.key}:${item.stage}`)),
+    )
+    .slice(0, Math.max(0, 64 - preserved.length))
+  const notifications = planned.map((item) => {
+    return {
+      title: item.title,
+      body: 'Open FinTrack to review the recorded due date.',
+      id: notificationId(`${item.key}:${item.stage}`),
+      channelId: 'finance-reminders',
+      isExactNotification: false,
+      schedule: { at: item.at },
+      extra: {
+        source: 'finapp',
+        route: item.route,
+        key: item.key,
+        stage: item.stage,
+        snoozedUntil: item.snoozedUntil ?? null,
+      },
+    }
+  })
 
   if (notifications.length > 0) {
     await LocalNotifications.schedule({ notifications })
@@ -146,6 +120,21 @@ export async function syncLocalNotifications(
   return {
     supported: true,
     permission,
-    scheduled: notifications.length,
+    scheduled: notifications.length + preserved.length,
+    ...(planned.some(
+      (item) =>
+        (item.stage === 'catch-up' || item.stage === 'snoozed') &&
+        !settings.notificationCatchUps?.includes(item.key),
+    )
+      ? {
+          scheduledCatchUpKeys: planned
+            .filter(
+              (item) =>
+                (item.stage === 'catch-up' || item.stage === 'snoozed') &&
+                !settings.notificationCatchUps?.includes(item.key),
+            )
+            .map((item) => item.key),
+        }
+      : {}),
   }
 }

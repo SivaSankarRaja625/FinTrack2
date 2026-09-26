@@ -32,6 +32,12 @@ const schema = z
     creditLimit: z.string().trim(),
     statementDay: z.string().trim(),
     paymentDueDay: z.string().trim(),
+    statementDate: z.string().trim(),
+    actualDueDate: z.string().trim(),
+    statementTotal: z.string().trim(),
+    statementMinimum: z.string().trim(),
+    statementPaid: z.string().trim(),
+    emergencyReserve: z.boolean(),
   })
   .superRefine((values, context) => {
     if (values.type !== 'credit-card') return
@@ -96,7 +102,7 @@ export function AccountDialog({
   initialType?: AccountType
   onClose: () => void
 }) {
-  const { save } = useFinance()
+  const { data, save } = useFinance()
   const { notify } = useToast()
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -120,15 +126,56 @@ export function AccountDialog({
         : '',
       statementDay: account?.creditCardDetails?.statementDay?.toString() ?? '',
       paymentDueDay: account?.creditCardDetails?.paymentDueDay?.toString() ?? '',
+      statementDate: account?.creditCardDetails?.statement?.date ?? '',
+      actualDueDate: account?.creditCardDetails?.statement?.dueDate ?? '',
+      statementTotal: account?.creditCardDetails?.statement
+        ? paiseToRupees(account.creditCardDetails.statement.totalPaise)
+        : '',
+      statementMinimum: account?.creditCardDetails?.statement
+        ? paiseToRupees(account.creditCardDetails.statement.minimumPaise)
+        : '',
+      statementPaid: account?.creditCardDetails?.statement
+        ? paiseToRupees(account.creditCardDetails.statement.paidPaise)
+        : '',
+      emergencyReserve: account?.emergencyReserve ?? false,
     },
   })
-  const isCard = useWatch({ control, name: 'type' }) === 'credit-card'
+  const selectedType = useWatch({ control, name: 'type' })
+  const isCard = selectedType === 'credit-card'
+  const isLiquid = ['cash', 'savings', 'current'].includes(selectedType)
   const cardDialog = initialType === 'credit-card'
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitting(true)
     setSubmitError(null)
     try {
+      const hasStatement =
+        values.type === 'credit-card' &&
+        [
+          values.statementDate,
+          values.actualDueDate,
+          values.statementTotal,
+          values.statementMinimum,
+          values.statementPaid,
+        ].some(Boolean)
+      if (
+        hasStatement &&
+        (!values.statementDate ||
+          !values.actualDueDate ||
+          !values.statementTotal ||
+          !values.statementMinimum)
+      ) {
+        throw new Error('Enter both statement dates, total, and minimum due')
+      }
+      const statement = hasStatement
+        ? {
+            date: values.statementDate,
+            dueDate: values.actualDueDate,
+            totalPaise: rupeesToPaise(values.statementTotal),
+            minimumPaise: rupeesToPaise(values.statementMinimum),
+            paidPaise: rupeesToPaise(values.statementPaid),
+          }
+        : undefined
       const creditCardDetails =
         values.type === 'credit-card'
           ? {
@@ -138,9 +185,11 @@ export function AccountDialog({
                 : null,
               statementDay: values.statementDay ? Number(values.statementDay) : null,
               paymentDueDay: values.paymentDueDay ? Number(values.paymentDueDay) : null,
+              ...(statement ? { statement } : {}),
             }
           : undefined
       const next: Account = {
+        ...account,
         id: account?.id ?? newId(),
         name: values.name.trim(),
         institution: values.institution.trim(),
@@ -148,13 +197,24 @@ export function AccountDialog({
         openingBalancePaise: rupeesToPaise(values.openingBalance),
         includeInNetWorth: values.includeInNetWorth,
         archived: values.archived,
-        ...(creditCardDetails ? { creditCardDetails } : {}),
+        creditCardDetails,
+        emergencyReserve: isLiquid && values.emergencyReserve,
         ...entityTimestamps(account ?? undefined),
       }
       const validated = accountSchema.safeParse(next)
       if (!validated.success) {
         setSubmitError(validated.error.issues[0]?.message ?? 'Check the account details')
         return
+      }
+      if (
+        validated.data.emergencyReserve &&
+        data.goals.some(
+          (goal) => !goal.archived && goal.linkedAccountId === validated.data.id,
+        )
+      ) {
+        throw new Error(
+          'Unlink goals from this account before counting it as emergency money',
+        )
       }
       await save('accounts', validated.data)
       notify(account ? 'Account updated' : 'Account added')
@@ -264,6 +324,12 @@ export function AccountDialog({
             <p className="field-error">{errors.openingBalance.message}</p>
           ) : null}
         </div>
+        {isLiquid ? (
+          <label className="check-row field-span">
+            <input type="checkbox" {...register('emergencyReserve')} />
+            <span>Count as immediate emergency reserve</span>
+          </label>
+        ) : null}
         {isCard ? (
           <>
             <div className="field">
@@ -323,9 +389,58 @@ export function AccountDialog({
               ) : null}
             </div>
             <p className="field-hint field-span">
-              Cycle days are reminders only. Your statement determines the actual amount
-              and due date; card payments are recorded as transfers.
+              Cycle days are informational. Enter the actual statement below for a
+              reminder; record payments as transfers and update the paid amount after
+              checking your statement.
             </p>
+            <div className="field">
+              <label htmlFor="card-statement-date">Statement date</label>
+              <input
+                id="card-statement-date"
+                className="input"
+                type="date"
+                {...register('statementDate')}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="card-actual-due-date">Actual statement due date</label>
+              <input
+                id="card-actual-due-date"
+                className="input"
+                type="date"
+                {...register('actualDueDate')}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="card-statement-total">Statement total</label>
+              <input
+                id="card-statement-total"
+                className="input"
+                inputMode="decimal"
+                {...register('statementTotal')}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="card-statement-minimum">Statement minimum</label>
+              <input
+                id="card-statement-minimum"
+                className="input"
+                inputMode="decimal"
+                {...register('statementMinimum')}
+              />
+            </div>
+            <div className="field field-span">
+              <label htmlFor="card-statement-paid">Amount paid on statement</label>
+              <input
+                id="card-statement-paid"
+                className="input"
+                inputMode="decimal"
+                {...register('statementPaid')}
+              />
+              <p className="field-hint">
+                This is a manual confirmation, not linked automatically to transfers.
+              </p>
+            </div>
           </>
         ) : null}
         <label className="check-row field-span">

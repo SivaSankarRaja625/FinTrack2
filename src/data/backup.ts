@@ -1,7 +1,8 @@
 import { gunzipSync, gzipSync } from 'fflate'
 
 import { validateFinanceData } from '../domain/schemas'
-import type { AttachmentMeta, FinanceData } from '../domain/types'
+import type { AttachmentMeta, FinanceData, UserProfile } from '../domain/types'
+import { validateRelations } from './invariants'
 import {
   type EncryptedPayload,
   type KdfParameters,
@@ -21,7 +22,8 @@ export interface BackupAttachment {
 }
 
 export interface CompleteBackupPayload {
-  dataSchemaVersion: 1
+  dataSchemaVersion: 2
+  createdAt: string | null
   records: FinanceData
   attachments: BackupAttachment[]
 }
@@ -51,15 +53,23 @@ function isBackupEnvelope(value: unknown): value is BackupEnvelope {
 }
 
 export async function createCompleteBackup(
-  payload: CompleteBackupPayload,
+  payload: Omit<CompleteBackupPayload, 'dataSchemaVersion' | 'createdAt'> & {
+    dataSchemaVersion: 1 | 2
+  },
   pin: string,
   options?: { kdf?: KdfParameters; appVersion?: string },
 ): Promise<Uint8Array> {
   validateFinanceData(payload.records)
+  const createdAt = new Date().toISOString()
+  const currentPayload: CompleteBackupPayload = {
+    ...payload,
+    dataSchemaVersion: 2,
+    createdAt,
+  }
   const kdf = options?.kdf ?? productionKdfParameters
   const salt = crypto.getRandomValues(new Uint8Array(16))
   const backupKey = await derivePinKey(pin, salt, kdf)
-  const compressed = gzipSync(utf8(JSON.stringify(payload)), { level: 6 })
+  const compressed = gzipSync(utf8(JSON.stringify(currentPayload)), { level: 6 })
   const encrypted = await encryptBytes(
     compressed,
     backupKey,
@@ -68,7 +78,7 @@ export async function createCompleteBackup(
   const envelope: BackupEnvelope = {
     magic: BACKUP_MAGIC,
     formatVersion: BACKUP_FORMAT_VERSION,
-    createdAt: new Date().toISOString(),
+    createdAt,
     appVersion: options?.appVersion ?? '0.1.0',
     salt: bytesToBase64(salt),
     kdf,
@@ -107,9 +117,20 @@ export async function readCompleteBackup(
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('The backup payload is invalid')
   }
-  const payload = parsed as Partial<CompleteBackupPayload>
-  if (payload.dataSchemaVersion !== 1 || !Array.isArray(payload.attachments)) {
+  const payload = parsed as Partial<Omit<CompleteBackupPayload, 'dataSchemaVersion'>> & {
+    dataSchemaVersion?: 1 | 2
+  }
+  if (
+    (payload.dataSchemaVersion !== 1 && payload.dataSchemaVersion !== 2) ||
+    !Array.isArray(payload.attachments)
+  ) {
     throw new Error('The backup data version is not supported')
+  }
+  if (
+    payload.dataSchemaVersion === 2 &&
+    (typeof payload.createdAt !== 'string' || Number.isNaN(Date.parse(payload.createdAt)))
+  ) {
+    throw new Error('The backup creation date is invalid')
   }
   const records = validateFinanceData(payload.records)
   const attachments = payload.attachments.map((attachment, index) => {
@@ -127,7 +148,43 @@ export async function readCompleteBackup(
     }
     return attachment as BackupAttachment
   })
-  return { dataSchemaVersion: 1, records, attachments }
+  return {
+    dataSchemaVersion: 2,
+    createdAt: payload.dataSchemaVersion === 2 ? payload.createdAt! : null,
+    records,
+    attachments,
+  }
+}
+
+export async function inspectCompleteBackup(
+  bytes: Uint8Array,
+  pin: string,
+  expectedProfile?: Pick<UserProfile, 'id' | 'createdAt'>,
+): Promise<{
+  createdAt: string | null
+  recordCount: number
+  attachmentCount: number
+}> {
+  const payload = await readCompleteBackup(bytes, pin)
+  validateRelations(
+    payload.records,
+    payload.attachments.map((attachment) => attachment.metadata),
+  )
+  if (
+    expectedProfile &&
+    (payload.records.profiles[0]?.id !== expectedProfile.id ||
+      payload.records.profiles[0]?.createdAt !== expectedProfile.createdAt)
+  ) {
+    throw new Error('This backup belongs to a different workspace')
+  }
+  return {
+    createdAt: payload.createdAt,
+    recordCount: Object.values(payload.records).reduce(
+      (total, collection) => total + collection.length,
+      0,
+    ),
+    attachmentCount: payload.attachments.length,
+  }
 }
 
 export function attachmentToBackup(

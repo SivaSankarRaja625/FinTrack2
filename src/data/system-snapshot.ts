@@ -4,6 +4,7 @@ import { unlockDataKey } from './crypto'
 import { decodeUtf8, utf8 } from './encoding'
 import { validateRelations } from './invariants'
 import { FinanceRepository } from './repository'
+import { resetRestoredDeviceState } from './recovery-settings'
 import { validateFinanceData } from '../domain/schemas'
 import { newId } from '../domain/id'
 
@@ -40,7 +41,7 @@ export async function createSystemSnapshot(
     createdAt: new Date().toISOString(),
     metadata: [
       { key: metadataKeys.security, value: security },
-      dataSchema ?? { key: metadataKeys.dataSchema, value: 1 },
+      dataSchema ?? { key: metadataKeys.dataSchema, value: 2 },
     ],
     records,
   }
@@ -115,6 +116,9 @@ export async function restoreSystemSnapshot(
     const stagedRepository = new FinanceRepository(dataKey, staging)
     const records = validateFinanceData(await stagedRepository.loadAll())
     validateRelations(records, [])
+    const importedSettings = records.settings[0]
+    if (!importedSettings) throw new Error('The system snapshot has no settings record')
+    await stagedRepository.put('settings', resetRestoredDeviceState(importedSettings))
 
     const [checkedMetadata, checkedRecords] = await Promise.all([
       staging.metadata.toArray(),

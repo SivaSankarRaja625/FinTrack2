@@ -18,6 +18,7 @@ import { Icon } from '../../ui/Icon'
 import { EmptyState, Metric, PageHeader } from '../../ui/Page'
 import { useToast } from '../../ui/Toast'
 import { PolicyDialog } from './PolicyDialog'
+import { coverageFor } from './coverage'
 
 const annualPremiumMultiplier: Record<InsurancePolicy['premiumFrequency'], number> = {
   weekly: 52,
@@ -72,7 +73,7 @@ export function InsurancePage() {
   const dueSoon = activePolicies.filter(
     (policy) =>
       differenceInCalendarDays(parseISO(policy.nextPremiumDate), parseISO(todayIso())) <=
-      30,
+        30 && policy.coverage?.premiumPaidForDate !== policy.nextPremiumDate,
   ).length
   const policyDocuments = selected
     ? attachmentMetadata.filter(
@@ -198,6 +199,34 @@ export function InsurancePage() {
     }
   }
 
+  const recordPolicyEvent = async (event: 'premium' | 'renewal') => {
+    if (!selected) return
+    const coverage = coverageFor(selected)
+    try {
+      await save('insurancePolicies', {
+        ...selected,
+        coverage: {
+          ...coverage,
+          ...(event === 'premium'
+            ? { premiumPaidForDate: selected.nextPremiumDate }
+            : { renewalConfirmedForDate: selected.renewalDate }),
+          lastConfirmedAt: todayIso(),
+        },
+        updatedAt: nowIso(),
+      })
+      notify(
+        event === 'premium'
+          ? 'Premium payment recorded; renewal still needs separate confirmation'
+          : 'Policy renewal confirmation recorded',
+      )
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : 'The confirmation could not be saved',
+        'error',
+      )
+    }
+  }
+
   return (
     <div className="page">
       <PageHeader
@@ -228,9 +257,9 @@ export function InsurancePage() {
         </div>
         <div className="card card-body span-3">
           <Metric
-            label="Total cover"
-            value={formatMoney(
-              sumPaise(activePolicies.map((policy) => policy.sumAssuredPaise)),
+            label="Health policies"
+            value={String(
+              activePolicies.filter((policy) => policy.type === 'health').length,
             )}
           />
         </div>
@@ -242,7 +271,7 @@ export function InsurancePage() {
         </div>
         <div className="card card-body span-3">
           <Metric
-            label="Premiums due within 30 days"
+            label="Premiums due or overdue"
             value={String(dueSoon)}
             tone={dueSoon > 0 ? 'danger' : 'default'}
           />
@@ -302,6 +331,11 @@ export function InsurancePage() {
                     {format(parseISO(policy.nextPremiumDate), 'dd MMM yyyy')} ·{' '}
                     {formatMoney(policy.premiumPaise)}
                   </span>
+                  {policy.coverage?.insuredPeople.length ? (
+                    <span className="record-meta">
+                      {policy.coverage.insuredPeople.join(', ')}
+                    </span>
+                  ) : null}
                 </button>
                 <button
                   type="button"
@@ -365,8 +399,82 @@ export function InsurancePage() {
                 <dt>Contact</dt>
                 <dd>{selected.contact || 'Not recorded'}</dd>
               </div>
+              <div>
+                <dt>Cover source</dt>
+                <dd>{selected.coverage?.source ?? 'Not recorded'}</dd>
+              </div>
+              <div>
+                <dt>Insured people</dt>
+                <dd>{selected.coverage?.insuredPeople.join(', ') || 'Not recorded'}</dd>
+              </div>
+              <div>
+                <dt>Cover layer</dt>
+                <dd>{selected.coverage?.layer ?? 'Not recorded'}</dd>
+              </div>
+              <div>
+                <dt>Deductible</dt>
+                <dd>
+                  {selected.coverage
+                    ? formatMoney(selected.coverage.deductiblePaise)
+                    : 'Not recorded'}
+                </dd>
+              </div>
+              {selected.coverage?.coPayPercent !== null &&
+              selected.coverage?.coPayPercent !== undefined ? (
+                <div>
+                  <dt>Co-pay</dt>
+                  <dd>{selected.coverage.coPayPercent}%</dd>
+                </div>
+              ) : null}
             </dl>
+            {selected.active &&
+            selected.renewalDate &&
+            selected.renewalDate < todayIso() ? (
+              <p className="inline-warning">
+                Recorded renewal date passed.{' '}
+                {selected.coverage?.renewalConfirmedForDate === selected.renewalDate
+                  ? 'Enter the next confirmed renewal date; the previous confirmation does not establish current cover.'
+                  : 'Cover status is unconfirmed. Check with the insurer.'}
+              </p>
+            ) : null}
+            {selected.coverage?.restrictions ? (
+              <p className="detail-note">{selected.coverage.restrictions}</p>
+            ) : null}
+            {selected.coverage?.claimContact ? (
+              <p className="detail-note">
+                Claim contact: {selected.coverage.claimContact}
+              </p>
+            ) : null}
             {selected.note ? <p className="detail-note">{selected.note}</p> : null}
+            {selected.active ? (
+              <div className="stack">
+                {selected.coverage?.premiumPaidForDate !== selected.nextPremiumDate ? (
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => void recordPolicyEvent('premium')}
+                  >
+                    Record premium payment
+                  </button>
+                ) : (
+                  <p className="field-hint">
+                    Payment recorded for {selected.nextPremiumDate}; verify the insurer
+                    also renewed the policy. Edit the policy to enter the next confirmed
+                    due date; FinTrack does not advance it automatically.
+                  </p>
+                )}
+                {selected.renewalDate &&
+                selected.coverage?.renewalConfirmedForDate !== selected.renewalDate ? (
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => void recordPolicyEvent('renewal')}
+                  >
+                    Confirm policy renewal
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div className="card span-7">
             <header className="card-header">

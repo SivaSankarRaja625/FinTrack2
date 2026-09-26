@@ -37,7 +37,18 @@ unsigned local release is suitable only for inspection, not distribution.
 
 Finance reminders must be scheduled as inexact alarms. They may be delivered within
 Android's batching window and must not request or open settings for an exact-alarm
-privilege. Verify one future reminder before and after a device reboot.
+privilege. Reminder refresh runs on foreground, local day change and timezone
+change; overdue dates remain visible in the app even if Android has delayed a
+notification. Catch-up scheduling records deduplication keys in encrypted
+settings to avoid repeatedly re-alerting after a delivered notification.
+Verify an insurance premium/renewal and card statement reminder
+before and after a device reboot. A browser test checks scheduling decisions, not
+actual Android notification delivery.
+
+Verify an exported complete `.finapp` backup from the saved location, including
+its attachments, then perform a destructive restore rehearsal using a separately
+saved and reselected safety copy. Export/share initiation alone is not evidence
+of recovery.
 
 ## Signed GitHub artifacts
 

@@ -115,6 +115,21 @@ export function CreditCardSection({
                       : 'Payment due day not set'}
                   </p>
                 ) : null}
+                {account.creditCardDetails?.statement ? (
+                  <p className="muted credit-card-cycle">
+                    Actual statement {account.creditCardDetails.statement.date} · due{' '}
+                    {account.creditCardDetails.statement.dueDate} · total{' '}
+                    {formatMoney(account.creditCardDetails.statement.totalPaise)} · paid{' '}
+                    {formatMoney(account.creditCardDetails.statement.paidPaise)}
+                    {account.creditCardDetails.statement.paidPaise <
+                    account.creditCardDetails.statement.totalPaise
+                      ? ` · remaining ${formatMoney(
+                          account.creditCardDetails.statement.totalPaise -
+                            account.creditCardDetails.statement.paidPaise,
+                        )}`
+                      : ' · full statement amount recorded'}
+                  </p>
+                ) : null}
               </div>
             )
           })}

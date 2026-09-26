@@ -36,6 +36,11 @@ const alertRules: Array<{
     description: 'Premium, renewal, and maturity dates.',
   },
   {
+    type: 'card-statement-due',
+    label: 'Card statements',
+    description: 'Manually entered statement amount and actual due date.',
+  },
+  {
     type: 'recurring-due',
     label: 'Recurring entries',
     description: 'Expected income, bills, and transfers.',
@@ -63,7 +68,8 @@ const alertRules: Array<{
   {
     type: 'emergency-fund',
     label: 'Emergency fund',
-    description: 'Liquid balances below the profile target.',
+    description:
+      'Designated immediate and second-line reserves below the profile target.',
   },
   {
     type: 'income-missing',
@@ -78,7 +84,23 @@ const alertRules: Array<{
   {
     type: 'backup-due',
     label: 'Backup reminders',
-    description: 'No complete backup or one older than 30 days.',
+    description: 'No saved file verified or the verified file is older than 30 days.',
+  },
+  {
+    type: 'financial-review',
+    label: 'Protection and document reviews',
+    description:
+      'Annual nominee, claim, retirement and tax-document checks, and job changes.',
+  },
+  {
+    type: 'high-cost-debt',
+    label: 'Debt rate review',
+    description: 'Recorded loans meeting your chosen annual rate threshold.',
+  },
+  {
+    type: 'investment-concentration',
+    label: 'Holding concentration',
+    description: 'A single holding above your chosen share of current recorded holdings.',
   },
   {
     type: 'net-worth-change',
@@ -130,27 +152,31 @@ export function AlertsPage() {
         | 'cashFlowFloorPaise'
       >
     >,
-  ) => {
-    if (!settings) return
+  ): Promise<boolean> => {
+    if (!settings) return false
     try {
       await save('settings', {
         ...settings,
         ...changes,
         ...entityTimestamps(settings),
       })
+      return true
     } catch (error) {
       notify(
         error instanceof Error ? error.message : 'Alert settings could not be saved',
         'error',
       )
+      return false
     }
   }
 
   const toggleNotifications = async (enabled: boolean) => {
     if (!settings) return
-    await updateSettings({ notificationsEnabled: enabled })
+    if (!(await updateSettings({ notificationsEnabled: enabled }))) return
     const status = await syncNotifications(enabled)
-    if (!enabled) {
+    if (status.error) {
+      notify(status.error, 'error')
+    } else if (!enabled) {
       notify('Scheduled reminders disabled')
     } else if (!status.supported) {
       await updateSettings({ notificationsEnabled: false })

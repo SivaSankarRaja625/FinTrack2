@@ -226,9 +226,9 @@ test('policy edits recalculate premiums and encrypted document round-trips befor
   await add.getByRole('button', { name: 'Add policy' }).click()
   await expect(add).toBeHidden()
   await expect(metric(page, 'Active policies')).toHaveText('1')
-  await expect(metric(page, 'Total cover')).toHaveText('₹5,00,000')
+  await expect(metric(page, 'Health policies')).toHaveText('1')
   await expect(metric(page, 'Estimated annual premium')).toHaveText('₹14,400')
-  await expect(metric(page, 'Premiums due within 30 days')).toHaveText('1')
+  await expect(metric(page, 'Premiums due or overdue')).toHaveText('1')
 
   await page
     .getByRole('list', { name: 'Policies' })
@@ -244,7 +244,7 @@ test('policy edits recalculate premiums and encrypted document round-trips befor
   await edit.getByRole('button', { name: 'Save changes' }).click()
   await expect(edit).toBeHidden()
   await expect(metric(page, 'Estimated annual premium')).toHaveText('₹6,000')
-  await expect(metric(page, 'Premiums due within 30 days')).toHaveText('0')
+  await expect(metric(page, 'Premiums due or overdue')).toHaveText('0')
   await expect(page.locator('.detail-list')).toContainText('Asha · Spouse')
 
   const filename = 'health-card.png'

@@ -16,6 +16,7 @@ export type AlertRuleType =
   | 'loan-due'
   | 'loan-payment-mismatch'
   | 'insurance-due'
+  | 'card-statement-due'
   | 'recurring-due'
   | 'cash-flow-risk'
   | 'import-duplicates'
@@ -25,6 +26,9 @@ export type AlertRuleType =
   | 'income-missing'
   | 'large-expense'
   | 'backup-due'
+  | 'financial-review'
+  | 'high-cost-debt'
+  | 'investment-concentration'
   | 'net-worth-change'
 
 export interface SnoozedAlert {
@@ -51,6 +55,8 @@ export interface UserProfile extends BaseEntity {
   essentialMonthlyPaise: Paise
   payDay: number
   emergencyFundMonths: number
+  financialDependents?: number | undefined
+  jobChangeReviewDate?: ISODate | null | undefined
 }
 
 export interface AppSettings extends BaseEntity {
@@ -59,11 +65,31 @@ export interface AppSettings extends BaseEntity {
   dateFormat: 'dd/MM/yyyy' | 'dd MMM yyyy'
   notificationLeadDays: number
   notificationsEnabled: boolean
+  notificationCatchUps?: string[] | undefined
   quietHoursStart: string
   quietHoursEnd: string
   androidBackupEnabled: boolean
   lastSystemSnapshotAt: ISODateTime | null
   lastManualBackupAt: ISODateTime | null
+  verifiedBackup?:
+    | {
+        verifiedAt: ISODateTime
+        createdAt: ISODateTime | null
+        recordCount: number
+        attachmentCount: number
+      }
+    | null
+    | undefined
+  reviewDates?:
+    | {
+        nominees: ISODate | null
+        retirement: ISODate | null
+        tax: ISODate | null
+        documents: ISODate | null
+      }
+    | undefined
+  highCostDebtBps?: number | null | undefined
+  concentrationWarningPercent?: number | null | undefined
   dismissedAlertKeys: string[]
   snoozedAlerts: SnoozedAlert[]
   alertHistory: AlertHistoryEntry[]
@@ -88,6 +114,15 @@ export interface CreditCardDetails {
   creditLimitPaise: Paise | null
   statementDay: number | null
   paymentDueDay: number | null
+  statement?:
+    | {
+        date: ISODate
+        dueDate: ISODate
+        totalPaise: Paise
+        minimumPaise: Paise
+        paidPaise: Paise
+      }
+    | undefined
 }
 
 export interface Account extends BaseEntity {
@@ -98,6 +133,7 @@ export interface Account extends BaseEntity {
   includeInNetWorth: boolean
   archived: boolean
   creditCardDetails?: CreditCardDetails | undefined
+  emergencyReserve?: boolean | undefined
 }
 
 export type CategoryKind = 'income' | 'expense'
@@ -261,6 +297,13 @@ export interface InvestmentHolding extends BaseEntity {
   activities: InvestmentActivity[]
   priceHistory: InvestmentPrice[]
   includeInNetWorth: boolean
+  reserveAccess?:
+    | {
+        instrument: 'overnight-fund' | 'liquid-fund' | 'bank-deposit'
+        accessDays: number
+        lockedUntil: ISODate | null
+      }
+    | undefined
 }
 
 export type InsuranceType =
@@ -285,6 +328,21 @@ export interface InsurancePolicy extends BaseEntity {
   note: string
   attachmentIds: EntityId[]
   active: boolean
+  coverage?:
+    | {
+        source: 'personal' | 'employer' | 'other'
+        insuredPeople: string[]
+        layer: 'base' | 'top-up' | 'other'
+        deductiblePaise: Paise
+        coPayPercent: number | null
+        restrictions: string
+        claimContact: string
+        premiumPaidForDate: ISODate | null
+        renewalConfirmedForDate: ISODate | null
+        reminderDays: number[]
+        lastConfirmedAt?: ISODate | null | undefined
+      }
+    | undefined
 }
 
 export interface Goal extends BaseEntity {

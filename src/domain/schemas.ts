@@ -21,6 +21,8 @@ export const userProfileSchema = z.object({
   essentialMonthlyPaise: paise.nonnegative(),
   payDay: z.number().int().min(1).max(31),
   emergencyFundMonths: z.number().min(0).max(36),
+  financialDependents: z.number().int().min(0).max(30).optional(),
+  jobChangeReviewDate: isoDate.nullable().optional(),
 })
 
 export const appSettingsSchema = z.object({
@@ -30,11 +32,31 @@ export const appSettingsSchema = z.object({
   dateFormat: z.enum(['dd/MM/yyyy', 'dd MMM yyyy']),
   notificationLeadDays: z.number().int().min(0).max(90),
   notificationsEnabled: z.boolean(),
+  notificationCatchUps: z.array(z.string().min(1)).max(500).optional(),
   quietHoursStart: z.string().regex(/^\d{2}:\d{2}$/u),
   quietHoursEnd: z.string().regex(/^\d{2}:\d{2}$/u),
   androidBackupEnabled: z.boolean(),
   lastSystemSnapshotAt: isoDateTime.nullable(),
   lastManualBackupAt: isoDateTime.nullable(),
+  verifiedBackup: z
+    .object({
+      verifiedAt: isoDateTime,
+      createdAt: isoDateTime.nullable(),
+      recordCount: z.number().int().nonnegative(),
+      attachmentCount: z.number().int().nonnegative(),
+    })
+    .nullable()
+    .optional(),
+  reviewDates: z
+    .object({
+      nominees: isoDate.nullable(),
+      retirement: isoDate.nullable(),
+      tax: isoDate.nullable(),
+      documents: isoDate.nullable(),
+    })
+    .optional(),
+  highCostDebtBps: z.number().int().min(0).max(100_000).nullable().optional(),
+  concentrationWarningPercent: z.number().min(1).max(100).nullable().optional(),
   dismissedAlertKeys: z.array(z.string()),
   snoozedAlerts: z.array(
     z.object({
@@ -51,6 +73,7 @@ export const appSettingsSchema = z.object({
         'loan-due',
         'loan-payment-mismatch',
         'insurance-due',
+        'card-statement-due',
         'recurring-due',
         'cash-flow-risk',
         'import-duplicates',
@@ -60,6 +83,9 @@ export const appSettingsSchema = z.object({
         'income-missing',
         'large-expense',
         'backup-due',
+        'financial-review',
+        'high-cost-debt',
+        'investment-concentration',
         'net-worth-change',
       ]),
       title: z.string(),
@@ -75,6 +101,7 @@ export const appSettingsSchema = z.object({
       'loan-due',
       'loan-payment-mismatch',
       'insurance-due',
+      'card-statement-due',
       'recurring-due',
       'cash-flow-risk',
       'import-duplicates',
@@ -84,6 +111,9 @@ export const appSettingsSchema = z.object({
       'income-missing',
       'large-expense',
       'backup-due',
+      'financial-review',
+      'high-cost-debt',
+      'investment-concentration',
       'net-worth-change',
     ]),
   ),
@@ -119,8 +149,24 @@ export const accountSchema = z
         creditLimitPaise: paise.positive().nullable(),
         statementDay: z.number().int().min(1).max(31).nullable(),
         paymentDueDay: z.number().int().min(1).max(31).nullable(),
+        statement: z
+          .object({
+            date: isoDate,
+            dueDate: isoDate,
+            totalPaise: paise.nonnegative(),
+            minimumPaise: paise.nonnegative(),
+            paidPaise: paise.nonnegative(),
+          })
+          .refine((statement) => statement.dueDate >= statement.date, {
+            message: 'Statement due date must follow the statement date',
+          })
+          .refine((statement) => statement.minimumPaise <= statement.totalPaise, {
+            message: 'Minimum due cannot exceed the statement total',
+          })
+          .optional(),
       })
       .optional(),
+    emergencyReserve: z.boolean().optional(),
   })
   .superRefine((account, context) => {
     if (account.type !== 'credit-card' && account.creditCardDetails != null) {
@@ -128,6 +174,16 @@ export const accountSchema = z
         code: 'custom',
         path: ['creditCardDetails'],
         message: 'Only credit card accounts can have card details',
+      })
+    }
+    if (
+      account.emergencyReserve &&
+      !['cash', 'savings', 'current'].includes(account.type)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['emergencyReserve'],
+        message: 'Only cash and accessible bank accounts can be immediate reserves',
       })
     }
   })
@@ -288,48 +344,70 @@ export const loanSchema = z.object({
   active: z.boolean(),
 })
 
-export const investmentSchema = z.object({
-  ...base,
-  accountId: id.nullable(),
-  name: z.string().trim().min(1).max(150),
-  symbol: z.string().trim().max(50),
-  type: z.enum([
-    'equity',
-    'mutual-fund',
-    'etf',
-    'bond',
-    'ppf',
-    'epf',
-    'nps',
-    'gold',
-    'fixed-deposit',
-    'other',
-  ]),
-  units: z.string().regex(/^\d+(\.\d+)?$/u),
-  averageCostPaise: paise.nonnegative(),
-  currentPricePaise: paise.nonnegative(),
-  priceDate: isoDate,
-  investedPaise: paise.nonnegative(),
-  activities: z.array(
-    z.object({
-      id,
-      date: isoDate,
-      type: z.enum(['buy', 'sell', 'contribution', 'withdrawal', 'dividend']),
-      units: z.string().regex(/^\d+(\.\d+)?$/u),
-      amountPaise: paise.nonnegative(),
-      pricePaise: paise.nonnegative(),
-      note: z.string().max(1_000),
-    }),
-  ),
-  priceHistory: z.array(
-    z.object({
-      id,
-      date: isoDate,
-      pricePaise: paise.nonnegative(),
-    }),
-  ),
-  includeInNetWorth: z.boolean(),
-})
+export const investmentSchema = z
+  .object({
+    ...base,
+    accountId: id.nullable(),
+    name: z.string().trim().min(1).max(150),
+    symbol: z.string().trim().max(50),
+    type: z.enum([
+      'equity',
+      'mutual-fund',
+      'etf',
+      'bond',
+      'ppf',
+      'epf',
+      'nps',
+      'gold',
+      'fixed-deposit',
+      'other',
+    ]),
+    units: z.string().regex(/^\d+(\.\d+)?$/u),
+    averageCostPaise: paise.nonnegative(),
+    currentPricePaise: paise.nonnegative(),
+    priceDate: isoDate,
+    investedPaise: paise.nonnegative(),
+    activities: z.array(
+      z.object({
+        id,
+        date: isoDate,
+        type: z.enum(['buy', 'sell', 'contribution', 'withdrawal', 'dividend']),
+        units: z.string().regex(/^\d+(\.\d+)?$/u),
+        amountPaise: paise.nonnegative(),
+        pricePaise: paise.nonnegative(),
+        note: z.string().max(1_000),
+      }),
+    ),
+    priceHistory: z.array(
+      z.object({
+        id,
+        date: isoDate,
+        pricePaise: paise.nonnegative(),
+      }),
+    ),
+    includeInNetWorth: z.boolean(),
+    reserveAccess: z
+      .object({
+        instrument: z.enum(['overnight-fund', 'liquid-fund', 'bank-deposit']),
+        accessDays: z.number().int().min(0).max(365),
+        lockedUntil: isoDate.nullable(),
+      })
+      .optional(),
+  })
+  .superRefine((holding, context) => {
+    if (!holding.reserveAccess) return
+    const eligible =
+      holding.reserveAccess.instrument === 'bank-deposit'
+        ? holding.type === 'fixed-deposit'
+        : holding.type === 'mutual-fund'
+    if (!eligible) {
+      context.addIssue({
+        code: 'custom',
+        path: ['reserveAccess'],
+        message: 'The selected reserve instrument does not match this holding type',
+      })
+    }
+  })
 
 export const insurancePolicySchema = z.object({
   ...base,
@@ -351,6 +429,21 @@ export const insurancePolicySchema = z.object({
   note: z.string().max(2_000),
   attachmentIds: z.array(id),
   active: z.boolean(),
+  coverage: z
+    .object({
+      source: z.enum(['personal', 'employer', 'other']),
+      insuredPeople: z.array(z.string().trim().min(1).max(100)).max(20),
+      layer: z.enum(['base', 'top-up', 'other']),
+      deductiblePaise: paise.nonnegative(),
+      coPayPercent: z.number().min(0).max(100).nullable(),
+      restrictions: z.string().max(1_000),
+      claimContact: z.string().max(200),
+      premiumPaidForDate: isoDate.nullable(),
+      renewalConfirmedForDate: isoDate.nullable(),
+      reminderDays: z.array(z.number().int().min(0).max(90)).min(1).max(6),
+      lastConfirmedAt: isoDate.nullable().optional(),
+    })
+    .optional(),
 })
 
 export const goalSchema = z.object({

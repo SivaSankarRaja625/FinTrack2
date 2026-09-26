@@ -12,7 +12,7 @@ import { decryptJson, encryptJson } from './crypto'
 import type { FinTrackDatabase } from './database'
 import { type EncryptedRecordRow, database, metadataKeys } from './database'
 
-const DATA_SCHEMA_VERSION = 1
+const DATA_SCHEMA_VERSION = 2
 const collections = [
   'profiles',
   'settings',

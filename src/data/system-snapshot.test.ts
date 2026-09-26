@@ -30,7 +30,18 @@ describe('Android structured-data snapshot', () => {
     await repository.replaceAll(
       financeData({
         profiles: [profile()],
-        settings: [settings()],
+        settings: [
+          settings({
+            notificationCatchUps: ['insurance:policy:2026-09-25'],
+            lastSystemSnapshotAt: timestamp,
+            verifiedBackup: {
+              createdAt: timestamp,
+              verifiedAt: timestamp,
+              recordCount: 2,
+              attachmentCount: 0,
+            },
+          }),
+        ],
         insurancePolicies: [
           {
             id: 'policy',
@@ -67,6 +78,9 @@ describe('Android structured-data snapshot', () => {
     expect(restoredConfig).toEqual(config)
     const restored = await new FinanceRepository(restoredKey, target).loadAll()
     expect(restored.insurancePolicies[0]?.attachmentIds).toEqual([])
+    expect(restored.settings[0]?.notificationCatchUps).toEqual([])
+    expect(restored.settings[0]?.verifiedBackup).toBeNull()
+    expect(restored.settings[0]?.lastSystemSnapshotAt).toBeNull()
   })
 
   it('refuses to overwrite an initialized installation', async () => {

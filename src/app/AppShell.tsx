@@ -28,6 +28,7 @@ const navigation: Array<{ label: string; items: NavigationItem[] }> = [
       { to: '/loans', label: 'Loans & credit', icon: 'loan' },
       { to: '/investments', label: 'Investments', icon: 'investment' },
       { to: '/insurance', label: 'Insurance', icon: 'insurance' },
+      { to: '/resilience', label: 'Resilience', icon: 'insurance' },
       { to: '/goals', label: 'Goals', icon: 'goal' },
     ],
   },

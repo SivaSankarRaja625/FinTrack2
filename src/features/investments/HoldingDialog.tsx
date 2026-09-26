@@ -34,6 +34,9 @@ const schema = z.object({
   priceDate: z.string().min(1, 'Choose a price date'),
   invested: z.string(),
   includeInNetWorth: z.boolean(),
+  reserveInstrument: z.enum(['none', 'overnight-fund', 'liquid-fund', 'bank-deposit']),
+  accessDays: z.string(),
+  lockedUntil: z.string(),
 })
 
 type Values = z.infer<typeof schema>
@@ -66,6 +69,9 @@ export function HoldingDialog({
       priceDate: holding?.priceDate ?? todayIso(),
       invested: holding ? paiseToRupees(holding.investedPaise) : '',
       includeInNetWorth: holding?.includeInNetWorth ?? true,
+      reserveInstrument: holding?.reserveAccess?.instrument ?? 'none',
+      accessDays: holding?.reserveAccess?.accessDays.toString() ?? '2',
+      lockedUntil: holding?.reserveAccess?.lockedUntil ?? '',
     },
   })
 
@@ -90,8 +96,30 @@ export function HoldingDialog({
         ? rupeesToPaise(values.invested)
         : calculatedInvested
       if (investedPaise < 0) throw new Error('Invested amount cannot be negative')
+      const reserveAccess =
+        values.reserveInstrument === 'none'
+          ? undefined
+          : {
+              instrument: values.reserveInstrument,
+              accessDays: Number(values.accessDays),
+              lockedUntil: values.lockedUntil || null,
+            }
+      if (
+        reserveAccess &&
+        (!Number.isInteger(reserveAccess.accessDays) ||
+          reserveAccess.accessDays < 0 ||
+          reserveAccess.accessDays > 365 ||
+          (reserveAccess.instrument === 'bank-deposit'
+            ? values.type !== 'fixed-deposit'
+            : values.type !== 'mutual-fund'))
+      ) {
+        throw new Error(
+          'Choose a matching fund or deposit and an access time from 0 to 365 days',
+        )
+      }
 
       const next: InvestmentHolding = {
+        ...holding,
         id: holding?.id ?? newId(),
         name: values.name.trim(),
         symbol: values.symbol.trim().toUpperCase(),
@@ -103,8 +131,9 @@ export function HoldingDialog({
         priceDate: values.priceDate,
         investedPaise,
         activities: holding?.activities ?? [],
-        priceHistory: holding?.priceHistory ?? [],
+        priceHistory: [...(holding?.priceHistory ?? [])],
         includeInNetWorth: values.includeInNetWorth,
+        ...(reserveAccess ? { reserveAccess } : { reserveAccess: undefined }),
         ...entityTimestamps(holding ?? undefined),
       }
       if (
@@ -249,6 +278,40 @@ export function HoldingDialog({
               {...register('invested')}
             />
           </div>
+        </div>
+        <div className="field">
+          <label htmlFor="holding-reserve-instrument">Reserve instrument</label>
+          <select
+            id="holding-reserve-instrument"
+            className="select"
+            {...register('reserveInstrument')}
+          >
+            <option value="none">Not an emergency reserve</option>
+            <option value="overnight-fund">User-verified overnight fund</option>
+            <option value="liquid-fund">User-verified liquid fund</option>
+            <option value="bank-deposit">Accessible fixed deposit</option>
+          </select>
+          <p className="field-hint">
+            Optional second-line money, not spendable cash or a product recommendation.
+          </p>
+        </div>
+        <div className="field">
+          <label htmlFor="holding-access-days">Expected access days</label>
+          <input
+            id="holding-access-days"
+            className="input"
+            inputMode="numeric"
+            {...register('accessDays')}
+          />
+        </div>
+        <div className="field field-span">
+          <label htmlFor="holding-locked-until">Locked until (if restricted)</label>
+          <input
+            id="holding-locked-until"
+            className="input"
+            type="date"
+            {...register('lockedUntil')}
+          />
         </div>
         <label className="check-row field-span">
           <input type="checkbox" {...register('includeInNetWorth')} />

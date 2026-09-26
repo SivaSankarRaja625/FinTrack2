@@ -8,6 +8,17 @@ limit, statement day, and payment due day. Card balances come from the account
 ledger: enter an amount owed as a negative opening balance and record payments
 as transfers, not income. Cycle days are informational; check the latest statement
 for the actual due amount and date.
+Under **Resilience** in More, designate emergency bank cash and separately
+identify accessible, user-verified deposits or liquid/overnight funds as
+second-line reserves. Overdrafts, goal-linked money, locked funds and stale
+valuations are excluded; second-line funds are not immediately spendable cash.
+The income/medical shock check uses entered essentials and optional recorded
+EMIs without inventing insurance payouts. Protection reviews cover employer
+benefits on job change, nominees, claim contacts, high-rate loans, holding
+concentration, retirement assumptions, and tax/documents. All thresholds and
+review confirmations are manual; no product recommendations or live quotes are
+provided. The sensitive claim sheet displays on screen only, without making a
+plaintext export.
 The interface is designed for Android phones first; a wider browser or tablet
 centers the same compact app rather than expanding into a desktop dashboard.
 The **Calculators** section under More offers local what-if illustrations for
@@ -59,6 +70,14 @@ does not apply NPS exit rules.
   account registration, or API calls.
 - Structured records and attachments are encrypted before local persistence.
 - Complete backups are exported as PIN-encrypted `.finapp` files.
+- Export or Android sharing cannot confirm that a file was saved. Reopen the
+  saved file under **Settings → Backup & restore** with its PIN to verify it.
+  Backup reminders use the authenticated date of the most recently checked
+  file, not the time the export button was clicked. Legacy backups without an
+  authenticated creation date can be verified but cannot count as recent.
+- Before destructive restore, save a safety export of the current workspace
+  and reselect that exact saved file. FinTrack authenticates it before replacing
+  records and documents.
 - Android system backup is optional and includes only an encrypted structured-data
   snapshot when device-lock-backed backup encryption is available.
 

@@ -23,10 +23,12 @@ import {
   database,
   getSecurityConfig,
   hasLocalData,
+  metadataKeys,
   setSecurityConfig,
 } from './database'
 import { validateRelations } from './invariants'
 import { FinanceRepository } from './repository'
+import { resetRestoredDeviceState } from './recovery-settings'
 
 export class Workspace {
   readonly records: FinanceRepository
@@ -52,7 +54,7 @@ export class Workspace {
     )
     return createCompleteBackup(
       {
-        dataSchemaVersion: 1,
+        dataSchemaVersion: 2,
         records,
         attachments: attachments.map((item) =>
           attachmentToBackup(item.metadata, item.content),
@@ -88,17 +90,30 @@ export class Workspace {
       const checkedRecords = validateFinanceData(await stagingRecords.loadAll())
       const checkedAttachments = await stagingAttachments.listMetadata()
       validateRelations(checkedRecords, checkedAttachments)
+      const importedSettings = checkedRecords.settings[0]
+      if (!importedSettings) throw new Error('The backup has no settings record')
+      await stagingRecords.put('settings', resetRestoredDeviceState(importedSettings))
 
       const [rawRecords, rawAttachments] = await Promise.all([
         staging.records.toArray(),
         staging.attachments.toArray(),
       ])
-      await this.db.transaction('rw', this.db.records, this.db.attachments, async () => {
-        await this.db.records.clear()
-        await this.db.attachments.clear()
-        await this.db.records.bulkPut(rawRecords)
-        await this.db.attachments.bulkPut(rawAttachments)
-      })
+      await this.db.transaction(
+        'rw',
+        this.db.records,
+        this.db.attachments,
+        this.db.metadata,
+        async () => {
+          await this.db.records.clear()
+          await this.db.attachments.clear()
+          await this.db.records.bulkPut(rawRecords)
+          await this.db.attachments.bulkPut(rawAttachments)
+          await this.db.metadata.put({
+            key: metadataKeys.dataSchema,
+            value: payload.dataSchemaVersion,
+          })
+        },
+      )
     } finally {
       staging.close()
       await staging.delete()
@@ -124,7 +139,7 @@ export async function initializeWorkspace(
     const workspace = new Workspace(dataKey, db)
     const timestamp = entityTimestamps()
     await workspace.records.replaceAll({
-      profiles: [{ ...profile, id: 'profile', ...timestamp }],
+      profiles: [{ ...profile, id: newId(), ...timestamp }],
       settings: [createDefaultSettings()],
       categories: createDefaultCategories(),
       accounts: [],

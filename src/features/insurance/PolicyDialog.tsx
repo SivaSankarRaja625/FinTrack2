@@ -10,6 +10,7 @@ import { paiseToRupees, rupeesToPaise } from '../../domain/money'
 import type { InsurancePolicy } from '../../domain/types'
 import { Dialog } from '../../ui/Dialog'
 import { useToast } from '../../ui/Toast'
+import { coverageFor } from './coverage'
 
 const schema = z.object({
   type: z.enum(['term-life', 'health', 'vehicle', 'home', 'personal-accident', 'other']),
@@ -29,6 +30,14 @@ const schema = z.object({
   contact: z.string().max(200),
   note: z.string().max(2_000),
   active: z.boolean(),
+  coverSource: z.enum(['personal', 'employer', 'other']),
+  insuredPeople: z.string().max(500),
+  coverLayer: z.enum(['base', 'top-up', 'other']),
+  deductible: z.string(),
+  coPayPercent: z.string(),
+  restrictions: z.string().max(1_000),
+  claimContact: z.string().max(200),
+  reminderDays: z.string().max(30),
 })
 
 type Values = z.infer<typeof schema>
@@ -68,6 +77,14 @@ export function PolicyDialog({
       contact: policy?.contact ?? '',
       note: policy?.note ?? '',
       active: policy?.active ?? true,
+      coverSource: coverageFor(policy).source,
+      insuredPeople: coverageFor(policy).insuredPeople.join(', '),
+      coverLayer: coverageFor(policy).layer,
+      deductible: paiseToRupees(coverageFor(policy).deductiblePaise),
+      coPayPercent: coverageFor(policy).coPayPercent?.toString() ?? '',
+      restrictions: coverageFor(policy).restrictions,
+      claimContact: coverageFor(policy).claimContact,
+      reminderDays: coverageFor(policy).reminderDays.join(','),
     },
   })
 
@@ -80,7 +97,27 @@ export function PolicyDialog({
       if (sumAssuredPaise < 0 || premiumPaise < 0) {
         throw new Error('Cover and premium cannot be negative')
       }
+      const deductiblePaise = rupeesToPaise(values.deductible)
+      if (deductiblePaise < 0) throw new Error('Deductible cannot be negative')
+      const coPayPercent = values.coPayPercent.trim() ? Number(values.coPayPercent) : null
+      if (
+        coPayPercent !== null &&
+        (!Number.isFinite(coPayPercent) || coPayPercent < 0 || coPayPercent > 100)
+      ) {
+        throw new Error('Co-pay must be between 0 and 100 percent')
+      }
+      const reminderDays = values.reminderDays
+        .split(',')
+        .map((entry) => Number(entry.trim()))
+      if (
+        reminderDays.length < 1 ||
+        reminderDays.length > 6 ||
+        reminderDays.some((days) => !Number.isInteger(days) || days < 0 || days > 90)
+      ) {
+        throw new Error('Enter up to six reminder days between 0 and 90')
+      }
       const next: InsurancePolicy = {
+        ...policy,
         id: policy?.id ?? newId(),
         type: values.type,
         insurer: values.insurer.trim(),
@@ -100,6 +137,20 @@ export function PolicyDialog({
         note: values.note.trim(),
         attachmentIds: policy?.attachmentIds ?? [],
         active: values.active,
+        coverage: {
+          ...coverageFor(policy),
+          source: values.coverSource,
+          insuredPeople: values.insuredPeople
+            .split(',')
+            .map((person) => person.trim())
+            .filter(Boolean),
+          layer: values.coverLayer,
+          deductiblePaise,
+          coPayPercent,
+          restrictions: values.restrictions.trim(),
+          claimContact: values.claimContact.trim(),
+          reminderDays: [...new Set(reminderDays)],
+        },
         ...entityTimestamps(policy ?? undefined),
       }
       await save('insurancePolicies', next)
@@ -246,6 +297,80 @@ export function PolicyDialog({
             type="date"
             {...register('maturityDate')}
           />
+        </div>
+        <div className="field">
+          <label htmlFor="policy-cover-source">Cover source</label>
+          <select
+            id="policy-cover-source"
+            className="select"
+            {...register('coverSource')}
+          >
+            <option value="personal">Personal</option>
+            <option value="employer">Employer</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="policy-cover-layer">Cover layer</label>
+          <select id="policy-cover-layer" className="select" {...register('coverLayer')}>
+            <option value="base">Base</option>
+            <option value="top-up">Top-up / floater layer</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div className="field field-span">
+          <label htmlFor="policy-insured">Insured people</label>
+          <input
+            id="policy-insured"
+            className="input"
+            placeholder="Separate names with commas"
+            {...register('insuredPeople')}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="policy-deductible">Deductible (if applicable)</label>
+          <input
+            id="policy-deductible"
+            className="input"
+            inputMode="decimal"
+            {...register('deductible')}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="policy-copay">Co-pay percentage (if applicable)</label>
+          <input
+            id="policy-copay"
+            className="input"
+            inputMode="decimal"
+            {...register('coPayPercent')}
+          />
+        </div>
+        <div className="field field-span">
+          <label htmlFor="policy-restrictions">
+            Restrictions or exclusions to review
+          </label>
+          <textarea
+            id="policy-restrictions"
+            className="textarea"
+            {...register('restrictions')}
+          />
+        </div>
+        <div className="field field-span">
+          <label htmlFor="policy-claim-contact">Claim contact</label>
+          <input
+            id="policy-claim-contact"
+            className="input"
+            {...register('claimContact')}
+          />
+        </div>
+        <div className="field field-span">
+          <label htmlFor="policy-reminder-days">Renewal reminder days before due</label>
+          <input
+            id="policy-reminder-days"
+            className="input"
+            {...register('reminderDays')}
+          />
+          <p className="field-hint">Comma-separated days; 0 means on the date.</p>
         </div>
         <div className="field">
           <label htmlFor="nominee-name">Nominee</label>

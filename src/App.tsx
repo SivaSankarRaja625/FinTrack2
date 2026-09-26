@@ -26,6 +26,9 @@ const InvestmentsPage = lazy(async () => ({
 const InsurancePage = lazy(async () => ({
   default: (await import('./features/insurance/InsurancePage')).InsurancePage,
 }))
+const ResiliencePage = lazy(async () => ({
+  default: (await import('./features/resilience/ResiliencePage')).ResiliencePage,
+}))
 const GoalsPage = lazy(async () => ({
   default: (await import('./features/goals/GoalsPage')).GoalsPage,
 }))
@@ -66,6 +69,7 @@ function FinanceApplication() {
           <Route path="/loans" element={<LoansPage />} />
           <Route path="/investments" element={<InvestmentsPage />} />
           <Route path="/insurance" element={<InsurancePage />} />
+          <Route path="/resilience" element={<ResiliencePage />} />
           <Route path="/goals" element={<GoalsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
