@@ -16,6 +16,17 @@ test('accepts only the expected production identity and signer', () => {
   )
 })
 
+test('uses the pinned production certificate when no variable is provided', () => {
+  const pinnedSigning = signing.replace(
+    fingerprint.replaceAll(':', '').toLowerCase(),
+    '2865df1d62bbc24c9a6643c025c175b430ff88b079871108057729edc1aacee4',
+  )
+  assert.doesNotThrow(() => verifyReleaseApk(badging, pinnedSigning, '0.1.0', 1000))
+  assert.throws(() => verifyReleaseApk(badging, signing, '0.1.0', 1000), {
+    message: /pinned certificate/u,
+  })
+})
+
 test('rejects a different key, package, version or debuggable APK', () => {
   const cases = [
     [badging, signing, '0.1.0', 1000, 'FF'.repeat(32)],

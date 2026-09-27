@@ -66,10 +66,10 @@ and check for API 36 and Build Tools 35.0.0 before building.
 Generate the persistent release keystore **offline** and keep two secure,
 independent offline copies of its keystore file, alias and passwords. From one
 backup copy, obtain its public certificate SHA-256 fingerprint with
-`keytool -list -v -keystore <file> -alias <alias>`. Configure the GitHub Actions
-**variable** `ANDROID_SIGNING_CERT_SHA256` with that fingerprint (colons are
-optional). Never pin a fingerprint from an unverified CI build. Add the encrypted
-repository secrets:
+`keytool -list -v -keystore <file> -alias <alias>`. The public fingerprint from
+the newly generated FinTrack keystore is pinned in
+`scripts/verify-release-apk.mjs` and must match that offline copy; do not
+replace the signing key after distribution. Add the encrypted repository secrets:
 
 - `ANDROID_KEYSTORE_BASE64`
 - `ANDROID_KEYSTORE_PASSWORD`

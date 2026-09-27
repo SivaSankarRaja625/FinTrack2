@@ -2,10 +2,13 @@ import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+const PINNED_RELEASE_CERT_SHA256 =
+  '28:65:DF:1D:62:BB:C2:4C:9A:66:43:C0:25:C1:75:B4:30:FF:88:B0:79:87:11:08:05:77:29:ED:C1:AA:CE:E4'
+
 function normalizedFingerprint(value) {
   const normalized = value.replaceAll(':', '').toLowerCase()
   if (!/^[0-9a-f]{64}$/u.test(normalized)) {
-    throw new Error('Set ANDROID_SIGNING_CERT_SHA256 to the pinned release certificate')
+    throw new Error('The expected release certificate SHA-256 is invalid')
   }
   return normalized
 }
@@ -15,7 +18,7 @@ export function verifyReleaseApk(
   signing,
   versionName,
   versionCode,
-  expectedFingerprint,
+  expectedFingerprint = PINNED_RELEASE_CERT_SHA256,
 ) {
   const expected = normalizedFingerprint(expectedFingerprint)
   const packageLine = badging.split('\n').find((line) => line.startsWith('package:'))
@@ -63,7 +66,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       signing,
       process.env.FINTRACK_VERSION_NAME,
       Number(process.env.FINTRACK_VERSION_CODE),
-      process.env.ANDROID_SIGNING_CERT_SHA256 ?? '',
     )
     console.log('Release package, version and pinned signing certificate verified')
   } catch (error) {
