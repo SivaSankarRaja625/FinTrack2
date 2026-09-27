@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { account, transaction } from '../test/fixtures'
+import { hashAttachment } from './attachments'
 import { testKdfParameters } from './crypto'
 import { createCompleteBackup } from './backup'
 import { FinTrackDatabase, getSecurityConfig, metadataKeys } from './database'
@@ -115,5 +117,125 @@ describe('workspace lifecycle', () => {
     expect(restoredSettings?.notificationCatchUps).toEqual([])
     expect(restoredSettings?.verifiedBackup).toBeNull()
     await expect(unlockWorkspace('secure-pin', db)).resolves.toBeDefined()
+  })
+
+  it('upgrades a schema-v1 installation on unlock without rewriting encrypted records', async () => {
+    db = new FinTrackDatabase(`workspace-test-${crypto.randomUUID()}`)
+    const workspace = await initializeWorkspace(
+      'secure-pin',
+      {
+        name: 'Asha',
+        locale: 'en-IN',
+        currency: 'INR',
+        monthlyIncomePaise: 0,
+        essentialMonthlyPaise: 0,
+        payDay: 1,
+        emergencyFundMonths: 0,
+      },
+      { db, kdf: testKdfParameters },
+    )
+    await workspace.records.put('accounts', account())
+    await workspace.records.put('transactions', transaction({ categoryId: null }))
+    const document = new TextEncoder().encode('%PDF-1.4 upgrade test')
+    await workspace.records.put('insurancePolicies', {
+      id: 'policy-1',
+      type: 'health',
+      insurer: 'Insurer',
+      policyName: 'Health cover',
+      policyNumber: '1234',
+      sumAssuredPaise: 1_000_000,
+      premiumPaise: 10_000,
+      premiumFrequency: 'yearly',
+      startDate: '2025-01-01',
+      endDate: null,
+      nextPremiumDate: '2027-01-01',
+      renewalDate: null,
+      maturityDate: null,
+      nomineeName: '',
+      nomineeRelation: '',
+      contact: '',
+      note: '',
+      attachmentIds: ['document-1'],
+      active: true,
+      createdAt: '2026-09-24T12:00:00.000Z',
+      updatedAt: '2026-09-24T12:00:00.000Z',
+    })
+    await workspace.attachments.put(
+      {
+        id: 'document-1',
+        ownerType: 'insurance',
+        ownerId: 'policy-1',
+        filename: 'policy.pdf',
+        mimeType: 'application/pdf',
+        size: document.byteLength,
+        contentHash: await hashAttachment(document),
+        createdAt: '2026-09-24T12:00:00.000Z',
+      },
+      document,
+    )
+    const before = await db.records.toArray()
+    const attachmentsBefore = await db.attachments.toArray()
+    const security = await getSecurityConfig(db)
+    await db.metadata.put({ key: metadataKeys.dataSchema, value: 1 })
+
+    const upgraded = await unlockWorkspace('secure-pin', db)
+    expect((await db.metadata.get(metadataKeys.dataSchema))?.value).toBe(2)
+    expect(await db.records.toArray()).toEqual(before)
+    expect(await db.attachments.toArray()).toEqual(attachmentsBefore)
+    expect(await getSecurityConfig(db)).toEqual(security)
+    expect((await upgraded.records.loadAll()).transactions[0]?.amountPaise).toBe(10_000)
+    expect((await upgraded.attachments.get('document-1'))?.content).toEqual(document)
+  })
+
+  it.each([3, '2', null])(
+    'refuses unsupported workspace schema %s without changing user data',
+    async (version) => {
+      db = new FinTrackDatabase(`workspace-test-${crypto.randomUUID()}`)
+      const workspace = await initializeWorkspace(
+        'secure-pin',
+        {
+          name: 'Asha',
+          locale: 'en-IN',
+          currency: 'INR',
+          monthlyIncomePaise: 0,
+          essentialMonthlyPaise: 0,
+          payDay: 1,
+          emergencyFundMonths: 0,
+        },
+        { db, kdf: testKdfParameters },
+      )
+      const before = await db.records.toArray()
+      await db.metadata.put({ key: metadataKeys.dataSchema, value: version })
+
+      await expect(unlockWorkspace('secure-pin', db)).rejects.toThrow(
+        version === 3 ? /newer version/u : /schema version is invalid/u,
+      )
+      expect(await db.records.toArray()).toEqual(before)
+      expect((await db.metadata.get(metadataKeys.dataSchema))?.value).toBe(version)
+      expect(workspace).toBeDefined()
+    },
+  )
+
+  it('does not promote invalid schema-v1 records to the current version', async () => {
+    db = new FinTrackDatabase(`workspace-test-${crypto.randomUUID()}`)
+    const workspace = await initializeWorkspace(
+      'secure-pin',
+      {
+        name: 'Asha',
+        locale: 'en-IN',
+        currency: 'INR',
+        monthlyIncomePaise: 0,
+        essentialMonthlyPaise: 0,
+        payDay: 1,
+        emergencyFundMonths: 0,
+      },
+      { db, kdf: testKdfParameters },
+    )
+    await workspace.records.put('transactions', transaction({ categoryId: null }))
+    await db.metadata.put({ key: metadataKeys.dataSchema, value: 1 })
+
+    await expect(unlockWorkspace('secure-pin', db)).rejects.toThrow(/no source account/u)
+    expect((await db.metadata.get(metadataKeys.dataSchema))?.value).toBe(1)
+    expect((await workspace.records.loadAll()).transactions).toHaveLength(1)
   })
 })

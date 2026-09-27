@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 
+import { UnsupportedDataSchemaError } from '../data/migrations'
 import { rupeesToPaise } from '../domain/money'
 import { readFileBytes } from '../platform/files'
 import { ConfirmDialog } from '../ui/Dialog'
@@ -407,15 +408,17 @@ export function UnlockScreen() {
     try {
       await unlock(pin)
     } catch (caught) {
-      const attempts = failedAttempts + 1
-      setFailedAttempts(attempts)
       setError(
         caught instanceof Error ? caught.message : 'FinTrack could not be unlocked',
       )
-      if (attempts >= 3) {
-        setBlocked(true)
-        const delay = Math.min(30, 2 ** (attempts - 2)) * 1_000
-        window.setTimeout(() => setBlocked(false), delay)
+      if (!(caught instanceof UnsupportedDataSchemaError)) {
+        const attempts = failedAttempts + 1
+        setFailedAttempts(attempts)
+        if (attempts >= 3) {
+          setBlocked(true)
+          const delay = Math.min(30, 2 ** (attempts - 2)) * 1_000
+          window.setTimeout(() => setBlocked(false), delay)
+        }
       }
     } finally {
       setSubmitting(false)

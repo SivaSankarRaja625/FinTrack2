@@ -42,6 +42,12 @@ has no network permission. App updates are external package replacements.
 
 ## Data upgrades
 
-Dexie upgrades structural stores. Business-payload migrations run after unlock,
-because payloads are encrypted. Migrations are ordered, idempotent, tested against
-released fixtures, and complete before the current UI can write data.
+Dexie upgrades structural stores. The current encrypted-data schema is 2.
+After authenticating the PIN, an installation with schema 1 validates all
+records and document relationships, then atomically advances the metadata
+marker to 2 without rewriting the encrypted rows or attachments. Android
+system snapshots are validated and promoted while staged, before import.
+Unsupported newer or invalid schema markers block unlock without modifying
+data. Future **breaking** schema changes require an ordered, tested migration
+before incrementing this marker; treating an older schema as already current
+would strand users after an in-place APK update.

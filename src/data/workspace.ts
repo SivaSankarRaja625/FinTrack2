@@ -27,6 +27,7 @@ import {
   setSecurityConfig,
 } from './database'
 import { validateRelations } from './invariants'
+import { migrateUnlockedWorkspace } from './migrations'
 import { FinanceRepository } from './repository'
 import { resetRestoredDeviceState } from './recovery-settings'
 
@@ -167,7 +168,9 @@ export async function unlockWorkspace(
 ): Promise<Workspace> {
   const config = await getSecurityConfig(db)
   if (!config) throw new Error('No encrypted workspace exists on this device')
-  return new Workspace(await unlockDataKey(pin, config), db)
+  const dataKey = await unlockDataKey(pin, config)
+  await migrateUnlockedWorkspace(dataKey, db)
+  return new Workspace(dataKey, db)
 }
 
 export async function changeWorkspacePin(

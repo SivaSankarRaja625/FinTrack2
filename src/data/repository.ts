@@ -10,9 +10,13 @@ import type {
 } from '../domain/types'
 import { decryptJson, encryptJson } from './crypto'
 import type { FinTrackDatabase } from './database'
-import { type EncryptedRecordRow, database, metadataKeys } from './database'
+import {
+  CURRENT_DATA_SCHEMA_VERSION,
+  type EncryptedRecordRow,
+  database,
+  metadataKeys,
+} from './database'
 
-const DATA_SCHEMA_VERSION = 2
 const collections = [
   'profiles',
   'settings',
@@ -127,7 +131,7 @@ export class FinanceRepository {
         await this.db.records.bulkPut(rows)
         await this.db.metadata.put({
           key: metadataKeys.dataSchema,
-          value: DATA_SCHEMA_VERSION,
+          value: CURRENT_DATA_SCHEMA_VERSION,
         })
       },
     )
@@ -174,4 +178,7 @@ export class FinanceRepository {
   }
 }
 
-export { DATA_SCHEMA_VERSION, collections as financeCollections }
+export {
+  CURRENT_DATA_SCHEMA_VERSION as DATA_SCHEMA_VERSION,
+  collections as financeCollections,
+}

@@ -1,5 +1,11 @@
 import type { EncryptedRecordRow, MetadataRow } from './database'
-import { FinTrackDatabase, database, getSecurityConfig, metadataKeys } from './database'
+import {
+  CURRENT_DATA_SCHEMA_VERSION,
+  FinTrackDatabase,
+  database,
+  getSecurityConfig,
+  metadataKeys,
+} from './database'
 import { unlockDataKey } from './crypto'
 import { decodeUtf8, utf8 } from './encoding'
 import { validateRelations } from './invariants'
@@ -7,6 +13,7 @@ import { FinanceRepository } from './repository'
 import { resetRestoredDeviceState } from './recovery-settings'
 import { validateFinanceData } from '../domain/schemas'
 import { newId } from '../domain/id'
+import { validatedDataSchemaVersion } from './migrations'
 
 export const SYSTEM_SNAPSHOT_MAX_BYTES = 20 * 1024 * 1024
 const SYSTEM_SNAPSHOT_MAGIC = 'FINTRACK-SYSTEM-SNAPSHOT'
@@ -76,6 +83,18 @@ function parseSystemSnapshot(bytes: Uint8Array): SystemSnapshot {
   ) {
     throw new Error('The Android system snapshot version is not supported')
   }
+  const allowed = [metadataKeys.security, metadataKeys.dataSchema]
+  if (
+    snapshot.metadata.length !== allowed.length ||
+    !allowed.every(
+      (key) => snapshot.metadata!.filter((row) => row?.key === key).length === 1,
+    )
+  ) {
+    throw new Error('The Android system snapshot has invalid metadata')
+  }
+  validatedDataSchemaVersion(
+    snapshot.metadata.find((row) => row.key === metadataKeys.dataSchema)?.value,
+  )
   for (const row of snapshot.records) {
     if (
       typeof row.key !== 'string' ||
@@ -119,6 +138,10 @@ export async function restoreSystemSnapshot(
     const importedSettings = records.settings[0]
     if (!importedSettings) throw new Error('The system snapshot has no settings record')
     await stagedRepository.put('settings', resetRestoredDeviceState(importedSettings))
+    await staging.metadata.put({
+      key: metadataKeys.dataSchema,
+      value: CURRENT_DATA_SCHEMA_VERSION,
+    })
 
     const [checkedMetadata, checkedRecords] = await Promise.all([
       staging.metadata.toArray(),

@@ -82,7 +82,14 @@ does not apply NPS exit rules.
   snapshot when device-lock-backed backup encryption is available.
 
 Google Play or the device package installer handles application updates outside the
-app process.
+app process. Signed release APKs can update an earlier signed release in place
+only with the same package ID and release certificate and a higher version code.
+CI preview APKs use a separate package ID and an ephemeral signing key, so
+they are not an update channel. If you installed an older preview with real
+data, save and verify a complete `.finapp` backup **outside the app** before
+uninstalling it; restore that backup into the signed release. See
+`docs/release.md` for versioning, certificate pinning and the device upgrade
+drill.
 
 ## Development
 

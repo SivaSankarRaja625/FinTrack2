@@ -43,6 +43,15 @@ jobs:
         run: |
           apk=android/app/build/outputs/apk/debug/app-debug.apk
           "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify "$apk"
+          badging=$("${ANDROID_HOME}/build-tools/35.0.0/aapt2" dump badging "$apk")
+          if ! grep -q "^package: name='com.fintrack.app.preview' " <<< "$badging"; then
+            echo "::error::Preview APK must not use the production package ID"
+            exit 1
+          fi
+          if ! grep -Eq "^launchable-activity:.*label='FinTrack Preview'" <<< "$badging"; then
+            echo "::error::Preview launcher must be labelled FinTrack Preview"
+            exit 1
+          fi
           permissions=$("${ANDROID_HOME}/build-tools/35.0.0/aapt2" dump permissions "$apk")
           if grep -Eq 'android\.permission\.(INTERNET|ACCESS_NETWORK_STATE|CHANGE_NETWORK_STATE|ACCESS_WIFI_STATE|CHANGE_WIFI_STATE|DOWNLOAD_WITHOUT_NOTIFICATION|REQUEST_INSTALL_PACKAGES|SCHEDULE_EXACT_ALARM|USE_EXACT_ALARM)' <<< "$permissions"; then
             echo "::error::Preview APK declares a forbidden permission"

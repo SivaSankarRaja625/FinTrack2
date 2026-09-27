@@ -6,8 +6,8 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
-      version_name:
-        description: Version name, for example 1.0.0
+      release_tag:
+        description: Existing immutable release tag, for example v0.1.0
         required: true
         type: string
 
@@ -18,8 +18,14 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    concurrency:
+      group: fintrack-release-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10.17.1
@@ -39,23 +45,25 @@ jobs:
           for tool in aapt2 apksigner; do
             test -x "$ANDROID_HOME/build-tools/35.0.0/$tool" || { echo "::error::Android Build Tools 35.0.0 ($tool) are missing"; exit 1; }
           done
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm android:sync
-
-      - name: Resolve release version
+      - name: Validate release source and version
         shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
         run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION_NAME="${GITHUB_REF_NAME#v}"
-          else
-            VERSION_NAME="${{ inputs.version_name }}"
-          fi
-          if [[ ! "${VERSION_NAME}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Version name is not a supported semantic version" >&2
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "::error::Manual release builds must be dispatched from main"
             exit 1
           fi
-          echo "FINTRACK_VERSION_NAME=${VERSION_NAME}" >> "${GITHUB_ENV}"
-          echo "FINTRACK_VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "${GITHUB_ENV}"
+          git fetch origin main --quiet
+          if ! git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}" ||
+             [[ "$(git rev-parse HEAD)" != "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" ]] ||
+             ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::Release must build an existing tag on main without moving its target"
+            exit 1
+          fi
+          node scripts/release-version.mjs "${RELEASE_TAG}" >> "${GITHUB_ENV}"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm android:sync
 
       - name: Prepare signing key
         shell: bash
@@ -88,9 +96,11 @@ jobs:
 
       - name: Verify release package
         shell: bash
+        env:
+          ANDROID_SIGNING_CERT_SHA256: ${{ vars.ANDROID_SIGNING_CERT_SHA256 }}
         run: |
           pnpm check:android-permissions
-          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose android/app/build/outputs/apk/release/app-release.apk
+          node scripts/verify-release-apk.mjs android/app/build/outputs/apk/release/app-release.apk
           "${JAVA_HOME}/bin/jarsigner" -verify android/app/build/outputs/bundle/release/app-release.aab
 
       - name: Collect artifacts

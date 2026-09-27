@@ -16,8 +16,7 @@ Every release must pass:
 
 Run `pnpm check` and `pnpm test:e2e` locally before pushing or tagging; GitHub
 Actions builds Android artifacts but does not run the lint, unit, or browser test
-suites. Signing keys and passwords live only in GitHub encrypted secrets or the
-release operator's secure local environment. They are never committed.
+suites. Signing keys and passwords are never committed.
 
 ## Local Android verification
 
@@ -53,22 +52,74 @@ of recovery.
 ## Signed GitHub artifacts
 
 The `main` push/pull-request workflow builds and uploads a **debug APK** that
-can be installed for review, but its runner-generated debug key cannot be
-relied on for in-place updates. It also builds an unsigned release variant to
-inspect the final Android permissions and backup rules. Do not distribute the
-debug artifact as a production release.
+uses the separate package `com.fintrack.app.preview` and is labelled **FinTrack
+Preview**. It can be installed alongside production but its runner-generated
+debug key cannot be relied on for updates even between preview builds. It also
+builds an unsigned release variant to inspect the final Android permissions and
+backup rules. Do not keep irreplaceable data in a preview or distribute it as
+a production release.
 Both Android workflows use the preinstalled SDK on the Ubuntu 24.04 runner
 and check for API 36 and Build Tools 35.0.0 before building.
 
-`.github/workflows/android-release.yml` runs for `v*` tags or manual dispatch. Add
-these encrypted repository secrets:
+### First signed release
+
+Generate the persistent release keystore **offline** and keep two secure,
+independent offline copies of its keystore file, alias and passwords. From one
+backup copy, obtain its public certificate SHA-256 fingerprint with
+`keytool -list -v -keystore <file> -alias <alias>`. Configure the GitHub Actions
+**variable** `ANDROID_SIGNING_CERT_SHA256` with that fingerprint (colons are
+optional). Never pin a fingerprint from an unverified CI build. Add the encrypted
+repository secrets:
 
 - `ANDROID_KEYSTORE_BASE64`
 - `ANDROID_KEYSTORE_PASSWORD`
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
 
-The workflow validates the requested version, builds signed APK and AAB files,
-verifies the APK signature and final permissions, creates a CycloneDX SBOM and
-SHA-256 checksums, and uploads one versioned artifact bundle. It does not publish to
-Google Play.
+Only an immutable `vMAJOR.MINOR.PATCH` tag on `main` whose version matches
+`package.json` can be built. Protect `v*` tags against deletion or retargeting
+in the GitHub repository settings. To release `v0.1.0`, first set
+`package.json` to `0.1.0`, commit and push to `main`, then create and push that
+tag. To release `v0.1.1`, bump the package version and repeat. Manual workflow
+dispatch from `main` can rebuild an **existing tag**; enter `v0.1.0` as
+`release_tag`. It cannot sign an arbitrary branch or version string.
+
+The Android `versionCode` is `MAJOR * 1,000,000 + MINOR * 1,000 + PATCH`
+(major 0–2099, minor/patch 0–999; code must be positive). No prerelease
+tags are accepted. This is independent of GitHub run numbers and must never be
+changed after a signed APK is distributed. If an earlier locally signed APK
+was distributed, check its package ID, signing certificate and version code
+before issuing the first release: a lower or mismatched APK cannot update it.
+Signed local builds must set both `FINTRACK_VERSION_CODE` and
+`FINTRACK_VERSION_NAME`; unsigned inspection builds may use defaults.
+
+The workflow verifies package ID `com.fintrack.app`, version, absence of the
+debuggable flag, exactly one signer, the pinned certificate, and offline
+permissions before uploading the signed APK/AAB, SBOM and SHA-256 checksums.
+Missing or replaced signing credentials and a missing certificate pin fail the
+build. Archive each signed APK, its checksum and certificate fingerprint outside
+GitHub: workflow artifacts expire after 30 days. This workflow does not publish
+to Google Play or offer automatic downloads from inside the offline app.
+
+### Existing preview users and upgrade drill
+
+The previously distributed debug APKs used `com.fintrack.app` but an unstable
+signing key. Android **cannot** install the new signed release over one of these
+debug APKs. Before removing the old installation, export a complete `.finapp`
+backup to storage **outside the app** (not the app's cache or share-sheet
+preview), open it from that saved location and verify its PIN and contents.
+Older previews lacking in-app verification can be test-restored into the new
+separately installed preview. Keep the old APK and saved backup until recovery
+has been checked. Then uninstall the old debug installation, install the signed
+release, and restore the `.finapp` backup with documents. Android system
+backup is not a substitute: it omits documents and may not restore across a
+signing-key change. Uninstalling without a saved backup deletes local data.
+
+For each pair of signed releases, install version A, create an account,
+transaction, policy document and PIN, and make/verify a complete backup.
+Without uninstalling, install version B using Android's package installer or
+`adb install -r FinTrack-B.apk`. Confirm that Android accepts the update, the
+PIN still unlocks, the records and document remain intact, and a new complete
+backup can be verified/restored. Repeat after a reboot and for any new data
+schema. Device installation and OS notification delivery cannot be proven by
+browser or unit tests alone; do not claim that drill passed unless it ran.

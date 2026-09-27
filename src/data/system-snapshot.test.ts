@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { financeData, profile, settings, timestamp } from '../test/fixtures'
 import { createSecurityConfig, testKdfParameters } from './crypto'
-import { FinTrackDatabase, getSecurityConfig, setSecurityConfig } from './database'
+import {
+  FinTrackDatabase,
+  getSecurityConfig,
+  metadataKeys,
+  setSecurityConfig,
+} from './database'
 import { FinanceRepository } from './repository'
 import { createSystemSnapshot, restoreSystemSnapshot } from './system-snapshot'
 
@@ -117,4 +122,58 @@ describe('Android structured-data snapshot', () => {
     await expect(target.metadata.count()).resolves.toBe(0)
     await expect(target.records.count()).resolves.toBe(0)
   })
+
+  it('promotes a validated schema-v1 system snapshot before importing it', async () => {
+    const source = new FinTrackDatabase(`snapshot-source-${crypto.randomUUID()}`)
+    const target = new FinTrackDatabase(`snapshot-target-${crypto.randomUUID()}`)
+    databases.push(source, target)
+    const { config, dataKey } = await createSecurityConfig(
+      'secure-pin',
+      testKdfParameters,
+    )
+    await setSecurityConfig(config, source)
+    await new FinanceRepository(dataKey, source).replaceAll(
+      financeData({ profiles: [profile()], settings: [settings()] }),
+    )
+    await source.metadata.put({ key: metadataKeys.dataSchema, value: 1 })
+    const snapshot = await createSystemSnapshot(dataKey, source)
+
+    await restoreSystemSnapshot(snapshot, 'secure-pin', target)
+    expect((await target.metadata.get(metadataKeys.dataSchema))?.value).toBe(2)
+    expect((await new FinanceRepository(dataKey, target).loadAll()).profiles).toEqual([
+      profile(),
+    ])
+  })
+
+  it.each([3, '2'])(
+    'rejects unsupported system snapshot schema %s before writing target data',
+    async (version) => {
+      const source = new FinTrackDatabase(`snapshot-source-${crypto.randomUUID()}`)
+      const target = new FinTrackDatabase(`snapshot-target-${crypto.randomUUID()}`)
+      databases.push(source, target)
+      const { config, dataKey } = await createSecurityConfig(
+        'secure-pin',
+        testKdfParameters,
+      )
+      await setSecurityConfig(config, source)
+      await new FinanceRepository(dataKey, source).replaceAll(
+        financeData({ profiles: [profile()], settings: [settings()] }),
+      )
+      const snapshot = JSON.parse(
+        new TextDecoder().decode(await createSystemSnapshot(dataKey, source)),
+      ) as { metadata: { key: string; value: unknown }[] }
+      snapshot.metadata.find((row) => row.key === metadataKeys.dataSchema)!.value =
+        version
+
+      await expect(
+        restoreSystemSnapshot(
+          new TextEncoder().encode(JSON.stringify(snapshot)),
+          'secure-pin',
+          target,
+        ),
+      ).rejects.toThrow(version === 3 ? /newer version/u : /schema version is invalid/u)
+      expect(await target.metadata.count()).toBe(0)
+      expect(await target.records.count()).toBe(0)
+    },
+  )
 })
