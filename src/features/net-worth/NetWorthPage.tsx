@@ -17,6 +17,7 @@ import { Icon } from '../../ui/Icon'
 import { EmptyState, Metric, PageHeader } from '../../ui/Page'
 import { useToast } from '../../ui/Toast'
 import { AssetDialog } from './AssetDialog'
+import { NetWorthComposition } from './NetWorthComposition'
 
 export function NetWorthPage() {
   const { data, save, remove } = useFinance()
@@ -46,12 +47,13 @@ export function NetWorthPage() {
   )
   const chartPoints = [
     ...snapshots.map((snapshot) => ({
+      date: snapshot.date,
       label: format(parseISO(snapshot.date), 'MMM yy'),
       value: snapshot.totalPaise,
     })),
     ...(snapshots.at(-1)?.date === todayIso()
       ? []
-      : [{ label: 'Today', value: breakdown.totalPaise }]),
+      : [{ date: todayIso(), label: 'Today', value: breakdown.totalPaise }]),
   ]
   const grossPaise =
     breakdown.cashPaise + breakdown.investmentPaise + breakdown.assetPaise
@@ -99,10 +101,10 @@ export function NetWorthPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page worth-page">
       <PageHeader
         title="Net worth"
-        description="Included accounts, holdings, manual assets, and debts as of their stated valuation dates."
+        description="What you own, less what you owe."
         action={
           <div className="cluster">
             <button
@@ -111,7 +113,7 @@ export function NetWorthPage() {
               onClick={() => void recordSnapshot()}
             >
               <Icon name="calendar" size={17} />
-              Record snapshot
+              Save today&apos;s net worth
             </button>
             <button
               type="button"
@@ -134,12 +136,6 @@ export function NetWorthPage() {
           />
         </div>
         <div className="card card-body span-3">
-          <Metric label="Cash & accounts" value={formatMoney(breakdown.cashPaise)} />
-        </div>
-        <div className="card card-body span-3">
-          <Metric label="Investments" value={formatMoney(breakdown.investmentPaise)} />
-        </div>
-        <div className="card card-body span-3">
           <Metric
             label="Debt"
             value={formatMoney(breakdown.debtPaise)}
@@ -150,51 +146,21 @@ export function NetWorthPage() {
       </section>
 
       <section className="page-grid">
-        <div className="card span-8">
-          <header className="card-header">
-            <div>
-              <h2>History</h2>
-              <p className="muted">
-                Snapshots preserve the composition at the time recorded.
-              </p>
-            </div>
-          </header>
-          <div className="card-body">
-            {chartPoints.length > 1 ? (
-              <TrendChart label="Net worth history" points={chartPoints} />
-            ) : (
-              <EmptyState
-                title="Record a second snapshot to see a trend"
-                description="The current total is shown above; snapshots make historical changes explicit."
-              />
-            )}
-          </div>
-        </div>
         <div className="card span-4">
           <header className="card-header">
             <div>
               <h2>Composition</h2>
-              <p className="muted">Current included values.</p>
             </div>
           </header>
-          <div className="composition-list">
-            {[
-              ['Cash & accounts', breakdown.cashPaise, 'composition-cash'],
-              ['Investments', breakdown.investmentPaise, 'composition-investments'],
-              ['Manual assets', breakdown.assetPaise, 'composition-assets'],
-              ['Debt', -breakdown.debtPaise, 'composition-debt'],
-            ].map(([label, value, className]) => (
-              <div key={String(label)} className="composition-row">
-                <span className={`composition-dot ${className}`} />
-                <span>{label}</span>
-                <strong className="tabular">{formatMoney(Number(value))}</strong>
-              </div>
-            ))}
-          </div>
+          <NetWorthComposition
+            breakdown={breakdown}
+            holdings={data.investments}
+            assets={data.assets}
+          />
         </div>
       </section>
 
-      <section className="card">
+      <section className="card" id="net-worth-accounts">
         <header className="card-header">
           <div>
             <h2>Account contribution</h2>
@@ -210,43 +176,32 @@ export function NetWorthPage() {
             description="Accounts added in Transactions will appear here."
           />
         ) : (
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Account</th>
-                  <th>Type</th>
-                  <th>Included</th>
-                  <th className="amount-cell">Current balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.accounts.map((account) => (
-                  <tr key={account.id}>
-                    <td>
-                      <strong>{account.name}</strong>
-                      {account.institution ? <small>{account.institution}</small> : null}
-                    </td>
-                    <td>{account.type.replace('-', ' ')}</td>
-                    <td>
-                      <span
-                        className={`badge${account.includeInNetWorth ? ' badge-positive' : ''}`}
-                      >
-                        {account.includeInNetWorth ? 'Included' : 'Excluded'}
-                      </span>
-                    </td>
-                    <td className="amount-cell tabular">
-                      {formatMoney(balances.get(account.id) ?? 0)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="record-list" aria-label="Account balances">
+            {data.accounts.map((account) => (
+              <li key={account.id} className="finance-record">
+                <div className="finance-record-title">
+                  <strong>{account.name}</strong>
+                  <strong className="tabular">
+                    {formatMoney(balances.get(account.id) ?? 0)}
+                  </strong>
+                </div>
+                <p className="record-meta">
+                  {account.institution || account.type.replace('-', ' ')}
+                  {account.archived ? ' · Archived' : ''}
+                </p>
+                <p className="record-meta">
+                  Net-worth setting:{' '}
+                  {account.includeInNetWorth
+                    ? 'include, subject to linked-record exclusions above'
+                    : 'exclude'}
+                </p>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
-      <section className="card">
+      <section className="card" id="net-worth-valuations">
         <header className="card-header">
           <div>
             <h2>Manual assets & liabilities</h2>
@@ -278,83 +233,71 @@ export function NetWorthPage() {
             description="Add property, vehicles, gold, deposits, provident funds, receivables, or liabilities not tracked elsewhere."
           />
         ) : (
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Kind</th>
-                  <th>Valued on</th>
-                  <th>Status</th>
-                  <th className="amount-cell">Value</th>
-                  <th>
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...data.assets]
-                  .sort((left, right) => left.kind.localeCompare(right.kind))
-                  .map((asset) => {
-                    const staleDays = differenceInCalendarDays(
-                      new Date(),
-                      parseISO(asset.valuationDate),
-                    )
-                    return (
-                      <tr key={asset.id}>
-                        <td>
-                          <button
-                            type="button"
-                            className="table-primary-action"
-                            onClick={() => setAssetDialog(asset)}
-                          >
-                            {asset.name}
-                          </button>
-                          <small>{asset.type.replace('-', ' ')}</small>
-                        </td>
-                        <td>{asset.kind}</td>
-                        <td>{format(parseISO(asset.valuationDate), 'dd MMM yyyy')}</td>
-                        <td>
-                          <span
-                            className={`badge${staleDays > 90 ? ' badge-warning' : asset.includeInNetWorth ? ' badge-positive' : ''}`}
-                          >
-                            {!asset.includeInNetWorth
-                              ? 'Excluded'
-                              : staleDays > 90
-                                ? 'Stale value'
-                                : 'Current'}
-                          </span>
-                        </td>
-                        <td
-                          className={`amount-cell tabular${asset.kind === 'liability' ? ' text-danger' : ''}`}
-                        >
-                          {asset.kind === 'liability' ? '−' : ''}
-                          {formatMoney(asset.valuePaise)}
-                        </td>
-                        <td className="row-actions">
-                          <button
-                            type="button"
-                            className="icon-button"
-                            aria-label={`Edit ${asset.name}`}
-                            onClick={() => setAssetDialog(asset)}
-                          >
-                            <Icon name="edit" size={16} />
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-button"
-                            aria-label={`Delete ${asset.name}`}
-                            onClick={() => setDeleteTarget(asset)}
-                          >
-                            <Icon name="trash" size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-              </tbody>
-            </table>
-          </div>
+          <ul className="record-list" aria-label="Manual valuations">
+            {[...data.assets]
+              .sort((left, right) => left.kind.localeCompare(right.kind))
+              .map((asset) => {
+                const staleDays = differenceInCalendarDays(
+                  new Date(),
+                  parseISO(asset.valuationDate),
+                )
+                return (
+                  <li key={asset.id} className="finance-record">
+                    <div className="finance-record-title">
+                      <button
+                        type="button"
+                        className="table-primary-action"
+                        aria-label={`Edit ${asset.name}`}
+                        onClick={() => setAssetDialog(asset)}
+                      >
+                        {asset.name}
+                      </button>
+                      <strong
+                        className={`tabular${asset.kind === 'liability' ? ' text-danger' : ''}`}
+                      >
+                        {asset.kind === 'liability' ? '−' : ''}
+                        {formatMoney(asset.valuePaise)}
+                      </strong>
+                    </div>
+                    <p className="record-meta">
+                      {asset.kind} · {asset.type.replace('-', ' ')} · Valued{' '}
+                      {format(parseISO(asset.valuationDate), 'dd MMM yyyy')}
+                    </p>
+                    <div className="cluster cluster-between">
+                      <span
+                        className={`badge${staleDays > 90 ? ' badge-warning' : asset.includeInNetWorth ? ' badge-positive' : ''}`}
+                      >
+                        {!asset.includeInNetWorth
+                          ? 'Excluded'
+                          : staleDays > 90
+                            ? 'Stale value'
+                            : 'Current'}
+                      </span>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label={`Delete ${asset.name}`}
+                        onClick={() => setDeleteTarget(asset)}
+                      >
+                        <Icon name="trash" size={16} />
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+          </ul>
+        )}
+      </section>
+
+      <section className="card card-body">
+        <h2>History</h2>
+        {chartPoints.length > 1 ? (
+          <TrendChart label="Net worth history" points={chartPoints} />
+        ) : (
+          <p className="muted">
+            Save your net worth on different dates to see a trend. Saved snapshots do not
+            change when you edit current values.
+          </p>
         )}
       </section>
 

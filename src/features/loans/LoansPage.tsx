@@ -19,6 +19,7 @@ import { CreditCardSection } from './CreditCardSection'
 import { LoanDialog } from './LoanDialog'
 import { LoanPaymentDialog } from './LoanPaymentDialog'
 import { RateChangeDialog } from './RateChangeDialog'
+import { ScrollableTable } from '../../ui/ScrollableTable'
 
 function currentRateBps(loan: Loan): number {
   return (
@@ -272,7 +273,7 @@ export function LoansPage() {
                     </button>
                   ) : null}
                 </header>
-                <div className="table-wrap">
+                <ScrollableTable label="Projected loan payments">
                   <table className="data-table">
                     <thead>
                       <tr>
@@ -311,7 +312,7 @@ export function LoansPage() {
                       )}
                     </tbody>
                   </table>
-                </div>
+                </ScrollableTable>
               </section>
 
               <section className="page-grid">
@@ -331,7 +332,7 @@ export function LoansPage() {
                       description="Record principal and interest after each payment to track actual progress."
                     />
                   ) : (
-                    <div className="table-wrap">
+                    <ScrollableTable label="Recorded loan payments">
                       <table className="data-table">
                         <thead>
                           <tr>
@@ -367,7 +368,7 @@ export function LoansPage() {
                             ))}
                         </tbody>
                       </table>
-                    </div>
+                    </ScrollableTable>
                   )}
                 </div>
                 <div className="card span-5">

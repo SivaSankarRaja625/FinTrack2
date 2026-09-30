@@ -1,13 +1,21 @@
+import { changeCalculator, editAssumptions } from './support/calculators'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { expectMetricValues } from './support/finance'
 
 async function openCalculators(page: Page) {
   await page.goto('/')
+  await editAssumptions(page)
   await page.getByLabel('Name').fill('Ananya')
+  await editAssumptions(page)
   await page.getByLabel('Monthly take-home income').fill('120000')
+  await editAssumptions(page)
   await page.getByLabel('Essential monthly expenses').fill('45000')
+  await editAssumptions(page)
   await page.getByLabel('App PIN or passphrase').fill('FinTrack2026')
+  await editAssumptions(page)
   await page.getByLabel('Confirm PIN').fill('FinTrack2026')
+  await editAssumptions(page)
   await page.getByLabel(/I understand there is no remote PIN reset/u).check()
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click()
   await expect(page.getByRole('heading', { name: 'Financial overview' })).toBeVisible()
@@ -36,6 +44,7 @@ const choices = {
 
 async function selectCalculator(page: Page, kind: keyof typeof choices) {
   const [category, calculator] = choices[kind]
+  await changeCalculator(page)
   await page
     .getByRole('group', { name: 'Calculator categories' })
     .getByRole('button', { name: category, exact: true })
@@ -71,12 +80,14 @@ test('category and calculator buttons reveal only the selected form', async ({
   await expect(page.getByRole('heading', { name: 'Edit assumptions' })).toHaveCount(0)
 
   await calculators.getByRole('button', { name: 'Recurring deposit' }).click()
-  await expect(
-    calculators.getByRole('button', { name: 'Recurring deposit' }),
-  ).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: 'Change calculator' })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  )
   await expect(page.getByLabel('Actual instalment dates')).toBeVisible()
   await expect(page.getByLabel('Initial deposit')).toHaveCount(0)
 
+  await changeCalculator(page)
   await categories
     .getByRole('button', { name: 'Contribution and withdrawal plans' })
     .click()
@@ -93,18 +104,31 @@ test('category and calculator buttons reveal only the selected form', async ({
 test('navigation and deposit illustration use explicit bank terms', async ({ page }) => {
   await openCalculators(page)
   await selectCalculator(page, 'fd')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2027-01-01')
+  await editAssumptions(page)
   await page.getByLabel('Initial deposit').fill('10000')
-  await page.getByLabel('Bank annual nominal rate').fill('0')
+  await editAssumptions(page)
+  await page.getByLabel('Bank annual nominal rate').fill('8')
+  await editAssumptions(page)
   await page.getByLabel('Bank interest rest').selectOption('quarterly-anniversary')
+  await editAssumptions(page)
   await page.getByLabel('Bank day count').selectOption('actual-365')
+  await editAssumptions(page)
   await page.getByLabel('Interest payout').selectOption('cumulative')
   await page.getByRole('button', { name: 'Calculate' }).click()
-  await expect(page.getByText('₹10,000', { exact: false }).first()).toBeVisible()
+  await expectMetricValues(page.getByRole('region', { name: 'Calculation result' }), {
+    'External contributions': '₹10,000',
+    'Cash received': '₹0',
+    'End value': '₹10,824.32',
+    'Gain or interest': '₹824.32',
+    'Dated annualized return (XIRR)': '8.24%',
+  })
 })
 
-test('zero-return SIP shows contributions and changing inputs invalidates results', async ({
+test('saved comparable scenarios stay available when visiting a non-comparable calculator', async ({
   page,
 }) => {
   await openCalculators(page)
@@ -114,9 +138,46 @@ test('zero-return SIP shows contributions and changing inputs invalidates result
   await page.getByLabel('Contribution frequency').selectOption('1')
   await page.getByLabel('Monthly contribution').fill('1000')
   await page.getByLabel('Assumed annual return').fill('0')
+  await page.getByRole('button', { name: 'Calculate', exact: true }).click()
+  await page.getByRole('button', { name: 'Add scenario', exact: true }).click()
+  await changeCalculator(page)
+  await page
+    .getByRole('group', { name: 'Calculator categories' })
+    .getByRole('button', { name: 'Debt', exact: true })
+    .click()
+  await page.getByRole('button', { name: 'Loan prepayment', exact: true }).click()
+  await expect(page.locator('.calculator-saved')).toContainText('SIP')
+  await expect(
+    page.getByRole('button', { name: 'Add scenario', exact: true }),
+  ).toHaveCount(0)
+  await page.getByRole('button', { name: /^Remove SIP/ }).click()
+  await expect(page.getByRole('region', { name: 'Scenario comparison' })).toHaveCount(0)
+})
+
+test('zero-return SIP shows contributions and changing inputs invalidates results', async ({
+  page,
+}) => {
+  await openCalculators(page)
+  await selectCalculator(page, 'sip')
+  await editAssumptions(page)
+  await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
+  await page.getByLabel('End date').fill('2027-01-01')
+  await editAssumptions(page)
+  await page.getByLabel('Contribution frequency').selectOption('1')
+  await editAssumptions(page)
+  await page.getByLabel('Monthly contribution').fill('1000')
+  await editAssumptions(page)
+  await page.getByLabel('Assumed annual return').fill('0')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await expect(page.getByText('No return is assumed')).toBeVisible()
-  await expect(page.getByText('₹12,000', { exact: false }).first()).toBeVisible()
+  await expectMetricValues(page.getByRole('region', { name: 'Calculation result' }), {
+    'External contributions': '₹12,000',
+    'Cash received': '₹0',
+    'End value': '₹12,000',
+    'Gain or interest': '₹0',
+  })
+  await editAssumptions(page)
   await page.getByLabel('Monthly contribution').fill('2000')
   await expect(page.getByText('Outdated')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Compare scenarios' })).toBeDisabled()
@@ -139,11 +200,17 @@ test('quarterly SIP labels a payment per quarter and compares it to a three-mont
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'sip')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2027-01-01')
+  await editAssumptions(page)
   await page.getByLabel('Contribution frequency').selectOption('3')
+  await editAssumptions(page)
   await page.getByLabel('Quarterly contribution').fill('2000')
+  await editAssumptions(page)
   await page.getByLabel('Monthly affordability budget (optional)').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await expect(page.getByText('₹8,000', { exact: false }).first()).toBeVisible()
@@ -177,10 +244,15 @@ test('invalid bank terms never produce a successful-looking illustration', async
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'fd')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2027-01-01')
+  await editAssumptions(page)
   await page.getByLabel('Initial deposit').fill('10000')
+  await editAssumptions(page)
   await page.getByLabel('Bank annual nominal rate').fill('7')
+  await editAssumptions(page)
   await page.getByLabel('Interest payout').selectOption('cumulative')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await expect(page.getByText(/Bank interest rest.*required/i)).toBeVisible()
@@ -204,18 +276,32 @@ test('dated RD schedule identifies instalments and never invents missed payments
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'rd')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2026-04-01')
+  await editAssumptions(page)
   await page.getByLabel('Monthly instalment').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Number of instalments').fill('3')
+  await editAssumptions(page)
   await page.getByLabel('Bank annual nominal rate').fill('0')
+  await editAssumptions(page)
   await page.getByLabel('Bank interest rest').selectOption('quarterly-anniversary')
+  await editAssumptions(page)
   await page.getByLabel('Bank day count').selectOption('actual-365')
+  await editAssumptions(page)
   await page
     .getByLabel('Actual instalment dates')
     .fill('2026-01-01\n2026-02-01\n2026-03-01')
   await page.getByRole('button', { name: 'Calculate' }).click()
-  await expect(page.getByText('₹3,000', { exact: false }).first()).toBeVisible()
+  const result = page.getByRole('region', { name: 'Calculation result' })
+  await expectMetricValues(result, {
+    'External contributions': '₹3,000',
+    'Cash received': '₹0',
+    'End value': '₹3,000',
+    'Gain or interest': '₹0',
+  })
   await page.getByText('Calculation schedule').click()
   await expect(
     page.getByRole('table', { name: 'Dated cash flows and illustrative changes' }),
@@ -226,6 +312,16 @@ test('dated RD schedule identifies instalments and never invents missed payments
   ).toBeLessThanOrEqual(320)
   await expect(page.getByRole('cell', { name: '2026-02-01' }).first()).toBeVisible()
   await expect(page.getByText(/bank rounding.*differ/i)).toBeVisible()
+  await editAssumptions(page)
+  await page.getByLabel('Actual instalment dates').fill('2026-01-01\nmissed\n2026-03-01')
+  await page.getByRole('button', { name: 'Calculate' }).click()
+  await expectMetricValues(result, {
+    'External contributions': '₹2,000',
+    'Cash received': '₹0',
+    'End value': '₹2,000',
+    'Gain or interest': '₹0',
+  })
+  await expect(page.getByText(/Instalment 2 due 2026-02-01 was missed/)).toBeVisible()
 })
 
 test('zero-return STP keeps transfers internal and shows both fund balances', async ({
@@ -233,20 +329,37 @@ test('zero-return STP keeps transfers internal and shows both fund balances', as
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'stp')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2026-04-01')
+  await editAssumptions(page)
   await page.getByLabel('Transfer frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Source fund house').fill('Example AMC')
+  await editAssumptions(page)
   await page.getByLabel('Target fund house').fill('Example AMC')
+  await editAssumptions(page)
   await page.getByLabel('Source initial amount').fill('12000')
+  await editAssumptions(page)
   await page.getByLabel('Transfer type').selectOption('amount')
+  await editAssumptions(page)
   await page.getByLabel('Transfer amount').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('When source is insufficient').selectOption('stop')
+  await editAssumptions(page)
   await page.getByLabel('Source assumed annual return').fill('0')
+  await editAssumptions(page)
   await page.getByLabel('Target assumed annual return').fill('0')
   await page.getByRole('button', { name: 'Calculate' }).click()
-  await expect(page.getByText('₹9,000', { exact: false }).first()).toBeVisible()
-  await expect(page.getByText('₹3,000', { exact: false }).first()).toBeVisible()
+  await expectMetricValues(page.getByRole('region', { name: 'Calculation result' }), {
+    'External contributions': '₹12,000',
+    'Cash received': '₹0',
+    'End value': '₹12,000',
+    'Gain or interest': '₹0',
+    'source balance': '₹9,000',
+    'target balance': '₹3,000',
+  })
   await expect(
     page.getByText(/source redemption and a target subscription/i),
   ).toBeVisible()
@@ -261,17 +374,29 @@ test('zero-return SWP separates cash received from corpus in its dated schedule'
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'swp')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2026-04-01')
+  await editAssumptions(page)
   await page.getByLabel('Withdrawal frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Starting capital').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Withdrawal type').selectOption('amount')
+  await editAssumptions(page)
   await page.getByLabel('Withdrawal amount').fill('300')
+  await editAssumptions(page)
   await page.getByLabel('Annual withdrawal increase').fill('0')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
   await page.getByRole('button', { name: 'Calculate' }).click()
-  await expect(page.getByText('₹900', { exact: false }).first()).toBeVisible()
-  await expect(page.getByText('₹100', { exact: false }).first()).toBeVisible()
+  await expectMetricValues(page.getByRole('region', { name: 'Calculation result' }), {
+    'External contributions': '₹1,000',
+    'Cash received': '₹900',
+    'End value': '₹100',
+    'Gain or interest': '₹0',
+  })
   await expect(page.getByText(/not guaranteed income or profit/i)).toBeVisible()
   await page.getByText('Calculation schedule').click()
   await expect(
@@ -284,42 +409,78 @@ test('unit-based STP and SWP demand matching starting units and NAV before calcu
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'stp')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2026-03-01')
+  await editAssumptions(page)
   await page.getByLabel('Transfer frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Source fund house').fill('Example AMC')
+  await editAssumptions(page)
   await page.getByLabel('Target fund house').fill('Example AMC')
+  await editAssumptions(page)
   await page.getByLabel('Source initial amount').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Transfer type').selectOption('units')
+  await editAssumptions(page)
   await page.getByLabel('Starting source units').fill('10')
+  await editAssumptions(page)
   await page.getByLabel('Transfer units').fill('2.5')
+  await editAssumptions(page)
   await page.getByLabel('Source starting NAV').fill('100')
+  await editAssumptions(page)
   await page.getByLabel('Target starting NAV').fill('50')
+  await editAssumptions(page)
   await page.getByLabel('When source is insufficient').selectOption('stop')
+  await editAssumptions(page)
   await page.getByLabel('Source assumed annual return').fill('0')
+  await editAssumptions(page)
   await page.getByLabel('Target assumed annual return').fill('0')
+  await editAssumptions(page)
   await page.getByLabel('Source starting NAV').fill('90')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await expect(page.getByRole('alert')).toContainText('starting value')
   await expect(page.getByRole('heading', { name: 'Illustration' })).toHaveCount(0)
+  await editAssumptions(page)
   await page.getByLabel('Source starting NAV').fill('100')
   await page.getByRole('button', { name: 'Calculate' }).click()
-  await expect(page.getByText('source balance')).toBeVisible()
-  await expect(page.getByText('target balance')).toBeVisible()
+  await expectMetricValues(page.getByRole('region', { name: 'Calculation result' }), {
+    'External contributions': '₹1,000',
+    'Cash received': '₹0',
+    'End value': '₹1,000',
+    'Gain or interest': '₹0',
+    'source balance': '₹500',
+    'target balance': '₹500',
+  })
   await selectCalculator(page, 'swp')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2026-04-01')
+  await editAssumptions(page)
   await page.getByLabel('Withdrawal frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Starting capital').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Withdrawal type').selectOption('units')
+  await editAssumptions(page)
   await page.getByLabel('Starting units').fill('10')
+  await editAssumptions(page)
   await page.getByLabel('Starting NAV').fill('100')
+  await editAssumptions(page)
   await page.getByLabel('Withdrawal units').fill('2.5')
+  await editAssumptions(page)
   await page.getByLabel('Annual withdrawal increase').fill('0')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
   await page.getByRole('button', { name: 'Calculate' }).click()
-  await expect(page.getByText('₹750', { exact: false }).first()).toBeVisible()
-  await expect(page.getByText('₹250', { exact: false }).first()).toBeVisible()
+  await expectMetricValues(page.getByRole('region', { name: 'Calculation result' }), {
+    'External contributions': '₹1,000',
+    'Cash received': '₹750',
+    'End value': '₹250',
+    'Gain or interest': '₹0',
+  })
 })
 
 test('missing dated market returns show an error instead of filling the omitted month', async ({
@@ -327,11 +488,17 @@ test('missing dated market returns show an error instead of filling the omitted 
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'sip')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2026-03-01')
+  await editAssumptions(page)
   await page.getByLabel('Contribution frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Monthly contribution').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Return path format').selectOption('monthly')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return by month').fill('2026-01,0')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await expect(page.getByRole('alert')).toContainText('2026-02')
@@ -343,17 +510,30 @@ test('goal SIP solves a manually entered inflation-adjusted target without inven
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'goal-sip')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2027-01-01')
+  await editAssumptions(page)
   await page.getByLabel('Contribution frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Target amount').fill('12000')
+  await editAssumptions(page)
   await page.getByLabel('Goal inflation rate').fill('0')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await expect(page.getByRole('heading', { name: 'Illustration' })).toBeVisible()
-  await expect(page.getByText('Required contribution per payment')).toBeVisible()
-  await expect(page.getByText('₹1,000', { exact: false }).first()).toBeVisible()
-  await expect(page.getByText('₹12,000', { exact: false }).first()).toBeVisible()
+  await expectMetricValues(page.getByRole('region', { name: 'Calculation result' }), {
+    "Goal target in today's rupees": '₹12,000',
+    'Entered goal inflation rate': '0%',
+    'Inflation-adjusted target': '₹12,000',
+    'Required contribution per payment': '₹1,000',
+    'External contributions': '₹12,000',
+    'Cash received': '₹0',
+    'End value': '₹12,000',
+    'Gain or interest': '₹0',
+  })
 })
 
 test('step-up SIP displays first and final instalments and flags the entered budget threshold', async ({
@@ -361,19 +541,34 @@ test('step-up SIP displays first and final instalments and flags the entered bud
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'step-up-sip')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2027-02-01')
+  await editAssumptions(page)
   await page.getByLabel('Contribution frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Monthly contribution').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Increase every').selectOption('6')
+  await editAssumptions(page)
   await page.getByLabel('Increase type').selectOption('percent')
+  await editAssumptions(page)
   await page.getByLabel('Increase percentage').fill('10')
+  await editAssumptions(page)
   await page.getByLabel('Monthly affordability budget (optional)').fill('1050')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
   await page.getByRole('button', { name: 'Calculate' }).click()
-  await expect(page.getByText('First instalment')).toBeVisible()
-  await expect(page.getByText('Final instalment')).toBeVisible()
-  await expect(page.getByText('₹1,210', { exact: false }).first()).toBeVisible()
+  // Six payments of 1000, six of 1100, and one of 1210 total 13810.
+  await expectMetricValues(page.getByRole('region', { name: 'Calculation result' }), {
+    'First instalment': '₹1,000',
+    'Final instalment': '₹1,210',
+    'External contributions': '₹13,810',
+    'Cash received': '₹0',
+    'End value': '₹13,810',
+    'Gain or interest': '₹0',
+  })
   await expect(page.getByText(/exceeds entered budget.*2026-07-01/i)).toBeVisible()
 })
 
@@ -382,19 +577,36 @@ test('inflation and multiple calculators show scalar outcomes without pretending
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'multiple')
+  await editAssumptions(page)
   await page.getByLabel('Initial amount').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
+  await editAssumptions(page)
   await page.getByLabel('2x or 3x').selectOption('2')
+  await editAssumptions(page)
   await page.getByLabel('Horizon (years)').fill('10')
   await page.getByRole('button', { name: 'Calculate' }).click()
-  await expect(page.getByText('Not reached')).toBeVisible()
+  await expectMetricValues(page.getByRole('region', { name: 'Calculation result' }), {
+    'Time to 2x': 'Not reached',
+  })
   await expect(page.getByText('Calculation schedule')).toHaveCount(0)
+  await editAssumptions(page)
+  await page.getByLabel('Assumed annual return').fill('10')
+  await page.getByRole('button', { name: 'Calculate' }).click()
+  await expectMetricValues(page.getByRole('region', { name: 'Calculation result' }), {
+    'Time to 2x': '7.27 years',
+  })
   await selectCalculator(page, 'inflation')
+  await editAssumptions(page)
   await page.getByLabel('Current cost').fill('1000')
-  await page.getByLabel('Inflation rate', { exact: true }).fill('0')
+  await editAssumptions(page)
+  await page.getByLabel('Inflation rate', { exact: true }).fill('5')
+  await editAssumptions(page)
   await page.getByLabel('Years').fill('10')
   await page.getByRole('button', { name: 'Calculate' }).click()
-  await expect(page.getByText('₹1,000', { exact: false }).first()).toBeVisible()
+  await expectMetricValues(page.getByRole('region', { name: 'Calculation result' }), {
+    'Inflation-adjusted future cost': '₹1,628.89',
+  })
   await expect(page.getByText('Calculation schedule')).toHaveCount(0)
 })
 
@@ -403,15 +615,27 @@ test('lump-sum illustration retains the exact entered rate next to its dated res
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'lump-sum')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2027-01-01')
+  await editAssumptions(page)
   await page.getByLabel('Initial amount').fill('10000')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('7')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await expect(page.getByRole('region', { name: 'Calculation result' })).toContainText(
     'Illustrative effective annual return: 7%',
   )
   await expect(page.getByText('Money multiple (not an annualized return)')).toBeVisible()
+  await expectMetricValues(page.getByRole('region', { name: 'Calculation result' }), {
+    'External contributions': '₹10,000',
+    'Cash received': '₹0',
+    'End value': '₹10,700',
+    'Gain or interest': '₹700',
+    'Dated annualized return (XIRR)': '7.00%',
+    'Money multiple (not an annualized return)': '1.07x',
+  })
 })
 
 test('retirement drawdown and delay both keep contributions separate from withdrawals', async ({
@@ -419,35 +643,59 @@ test('retirement drawdown and delay both keep contributions separate from withdr
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'retirement')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2027-01-01')
+  await editAssumptions(page)
   await page.getByLabel('Contribution frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Monthly contribution').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Monthly withdrawal').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Withdrawal months').fill('3')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
+  await editAssumptions(page)
   await page.getByLabel('Monthly affordability budget (optional)').fill('500')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await expect(page.getByText(/exceeds entered budget on 2026-01-01/i)).toBeVisible()
-  await expect(page.getByText('₹12,000', { exact: false }).first()).toBeVisible()
-  await expect(page.getByText('₹3,000', { exact: false }).first()).toBeVisible()
-  await expect(page.getByText('₹9,000', { exact: false }).first()).toBeVisible()
+  await expectMetricValues(page.getByRole('region', { name: 'Calculation result' }), {
+    'External contributions': '₹12,000',
+    'Cash received': '₹3,000',
+    'End value': '₹9,000',
+    'Gain or interest': '₹0',
+  })
   await selectCalculator(page, 'delay')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2027-01-01')
+  await editAssumptions(page)
   await page.getByLabel('Contribution frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Monthly contribution').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Delay (months)').fill('6')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
+  await editAssumptions(page)
   await page.getByLabel('Monthly affordability budget (optional)').fill('500')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await expect(page.getByText(/exceeds entered budget on 2026-01-01/i)).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Starting now scenario' })).toContainText(
-    '₹12,000',
-  )
-  await expect(page.getByRole('region', { name: 'After delay scenario' })).toContainText(
-    '₹6,000',
-  )
+  await expectMetricValues(page.getByRole('region', { name: 'Starting now scenario' }), {
+    'External contributions': '₹12,000',
+    'Cash received': '₹0',
+    'End value': '₹12,000',
+    'Gain or interest': '₹0',
+  })
+  await expectMetricValues(page.getByRole('region', { name: 'After delay scenario' }), {
+    'External contributions': '₹6,000',
+    'Cash received': '₹0',
+    'End value': '₹6,000',
+    'Gain or interest': '₹0',
+  })
 })
 
 test('poor early SWP return paths change the ending corpus without promising withdrawals', async ({
@@ -455,15 +703,25 @@ test('poor early SWP return paths change the ending corpus without promising wit
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'swp')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2026-04-01')
+  await editAssumptions(page)
   await page.getByLabel('Withdrawal frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Starting capital').fill('10000')
+  await editAssumptions(page)
   await page.getByLabel('Withdrawal type').selectOption('amount')
+  await editAssumptions(page)
   await page.getByLabel('Withdrawal amount').fill('6000')
+  await editAssumptions(page)
   await page.getByLabel('Annual withdrawal increase').fill('0')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
+  await editAssumptions(page)
   await page.getByLabel('Compare a poor-early-returns path entered by me').check()
+  await editAssumptions(page)
   await page
     .getByLabel('Poor-early monthly returns')
     .fill('2026-01,-50\n2026-02,0\n2026-03,0')
@@ -486,23 +744,31 @@ test('comparison flags different cash flows without ranking scenarios', async ({
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'sip')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2027-01-01')
+  await editAssumptions(page)
   await page.getByLabel('Contribution frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Monthly contribution').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await page.getByRole('button', { name: 'Add scenario' }).click()
+  await editAssumptions(page)
   await page.getByLabel('Monthly contribution').fill('2000')
   await expect(page.getByText('Outdated')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Compare scenarios' })).toBeDisabled()
   await page.getByRole('button', { name: 'Calculate' }).click()
   await page.getByRole('button', { name: 'Add scenario' }).click()
+  await editAssumptions(page)
   await page.getByLabel('Comparison inflation rate').fill('0')
   await page.getByRole('button', { name: 'Compare scenarios' }).click()
   await expect(page.getByText('Different cash flows')).toBeVisible()
   await expect(page.getByText(/₹24,000/u).first()).toBeVisible()
   await expect(page.getByText(/Best investment|winner/iu)).toHaveCount(0)
+  await editAssumptions(page)
   await page.getByLabel('Monthly contribution').fill('3000')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await page.getByRole('button', { name: 'Add scenario' }).click()
@@ -516,10 +782,15 @@ test('leaving the route discards unsaved scenarios and previous form values', as
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'sip')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2027-01-01')
+  await editAssumptions(page)
   await page.getByLabel('Contribution frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Monthly contribution').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await page.getByRole('button', { name: 'Add scenario' }).click()
@@ -540,28 +811,39 @@ test('cross-kind comparison rejects mismatched horizons and compares matching on
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'sip')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2027-01-01')
+  await editAssumptions(page)
   await page.getByLabel('Contribution frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Monthly contribution').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await page.getByRole('button', { name: 'Add scenario' }).click()
   await selectCalculator(page, 'lump-sum')
   await expect(page.getByRole('heading', { name: 'Illustration' })).toHaveCount(0)
   await expect(page.locator('.calculator-saved')).toContainText('SIP')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2028-01-01')
+  await editAssumptions(page)
   await page.getByLabel('Initial amount').fill('12000')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await page.getByRole('button', { name: 'Add scenario' }).click()
+  await editAssumptions(page)
   await page.getByLabel('Comparison inflation rate').fill('0')
   await page.getByRole('button', { name: 'Compare scenarios' }).click()
   await expect(page.getByText(/different evaluation dates|same end date/i)).toBeVisible()
   await expect(page.getByText('Inflation-adjusted end value')).toHaveCount(0)
 
   await page.getByRole('button', { name: /Remove Lump-sum growth/u }).click()
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2027-01-01')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await page.getByRole('button', { name: 'Add scenario' }).click()
@@ -580,14 +862,20 @@ test('lock clears in-memory calculations even after unlocking the same workspace
 }) => {
   await openCalculators(page)
   await selectCalculator(page, 'sip')
+  await editAssumptions(page)
   await page.getByLabel('Start date').fill('2026-01-01')
+  await editAssumptions(page)
   await page.getByLabel('End date').fill('2027-01-01')
+  await editAssumptions(page)
   await page.getByLabel('Contribution frequency').selectOption('1')
+  await editAssumptions(page)
   await page.getByLabel('Monthly contribution').fill('1000')
+  await editAssumptions(page)
   await page.getByLabel('Assumed annual return').fill('0')
   await page.getByRole('button', { name: 'Calculate' }).click()
   await page.getByRole('button', { name: 'Add scenario' }).click()
   await page.getByRole('button', { name: 'Lock application' }).click()
+  await editAssumptions(page)
   await page.getByLabel('App PIN', { exact: true }).fill('FinTrack2026')
   await page.getByRole('button', { name: /Unlock/ }).click()
   await page.getByRole('button', { name: /More sections/u }).click()
@@ -625,6 +913,7 @@ test('offline reload keeps the private workspace usable without a calculator cac
   await page.evaluate(() => navigator.serviceWorker.ready)
   await page.context().setOffline(true)
   await page.reload()
+  await editAssumptions(page)
   await page.getByLabel('App PIN', { exact: true }).fill('FinTrack2026')
   await page.getByRole('button', { name: /Unlock/ }).click()
   await page.getByRole('button', { name: /More sections/u }).click()

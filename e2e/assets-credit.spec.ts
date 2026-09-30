@@ -239,6 +239,9 @@ test('policy edits recalculate premiums and encrypted document round-trips befor
   await edit.getByLabel('Premium', { exact: true }).fill('1500')
   await edit.getByLabel('Premium frequency').selectOption('quarterly')
   await edit.getByLabel('Next premium due').fill('2026-04-15')
+  await edit
+    .getByRole('button', { name: 'Nominee and claim details', exact: true })
+    .click()
   await edit.getByLabel('Nominee', { exact: true }).fill('Asha')
   await edit.getByLabel('Nominee relation').fill('Spouse')
   await edit.getByRole('button', { name: 'Save changes' }).click()

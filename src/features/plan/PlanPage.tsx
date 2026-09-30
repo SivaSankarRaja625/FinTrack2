@@ -53,10 +53,12 @@ export function PlanPage() {
   const accountNames = new Map(data.accounts.map((account) => [account.id, account.name]))
   const chartPoints = [
     {
+      date: today,
       label: format(parseISO(today), 'dd MMM'),
       value: forecast.openingBalancePaise,
     },
     ...forecast.events.map((event) => ({
+      date: event.date,
       label: format(parseISO(event.date), 'dd MMM'),
       value: event.projectedBalancePaise,
     })),
@@ -157,80 +159,6 @@ export function PlanPage() {
         </div>
       </section>
 
-      <section className="page-grid">
-        <div className="card span-7">
-          <header className="card-header">
-            <div>
-              <h2>90-day balance forecast</h2>
-              <p className="muted">
-                Liquid accounts only; transfers between liquid accounts have no net
-                effect.
-              </p>
-            </div>
-          </header>
-          <div className="card-body">
-            {forecast.events.length > 0 ? (
-              <TrendChart label="Projected liquid balance" points={chartPoints} />
-            ) : (
-              <EmptyState
-                title="No forecast events"
-                description="Add recurring income and obligations to build a projection."
-                action={
-                  data.accounts.length > 0 ? (
-                    <button
-                      type="button"
-                      className="button"
-                      onClick={() => setRecurringDialog('new')}
-                    >
-                      Add recurring item
-                    </button>
-                  ) : undefined
-                }
-              />
-            )}
-          </div>
-        </div>
-        <div className="card span-5">
-          <header className="card-header">
-            <div>
-              <h2>Upcoming</h2>
-              <p className="muted">Next expected cash movements.</p>
-            </div>
-          </header>
-          {forecast.events.length > 0 ? (
-            <div className="upcoming-list">
-              {forecast.events.slice(0, 8).map((event) => (
-                <div key={event.id} className="upcoming-row">
-                  <span
-                    className={`movement-icon${event.amountPaise >= 0 ? ' movement-in' : ' movement-out'}`}
-                  >
-                    <Icon
-                      name={event.amountPaise >= 0 ? 'arrow-down' : 'arrow-up'}
-                      size={16}
-                    />
-                  </span>
-                  <span>
-                    <strong>{event.name}</strong>
-                    <small>{format(parseISO(event.date), 'dd MMM yyyy')}</small>
-                  </span>
-                  <strong
-                    className={`tabular${event.amountPaise >= 0 ? ' text-positive' : ' text-danger'}`}
-                  >
-                    {event.amountPaise >= 0 ? '+' : '−'}
-                    {formatMoney(Math.abs(event.amountPaise))}
-                  </strong>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              title="Nothing scheduled"
-              description="Expected salary, bills, and transfers will appear here."
-            />
-          )}
-        </div>
-      </section>
-
       <section className="card">
         <header className="card-header">
           <div>
@@ -299,6 +227,84 @@ export function PlanPage() {
         )}
       </section>
 
+      <section className="page-grid">
+        <div className="card span-7">
+          <header className="card-header">
+            <div>
+              <h2>90-day balance forecast</h2>
+              <p className="muted">
+                Liquid accounts only; transfers between liquid accounts have no net
+                effect.
+              </p>
+            </div>
+          </header>
+          <div className="card-body">
+            {forecast.events.length > 0 ? (
+              <TrendChart
+                label="Projected liquid balance"
+                points={chartPoints}
+                interpolation="step-after"
+              />
+            ) : (
+              <EmptyState
+                title="No forecast events"
+                description="Add recurring income and obligations to build a projection."
+                action={
+                  data.accounts.length > 0 ? (
+                    <button
+                      type="button"
+                      className="button"
+                      onClick={() => setRecurringDialog('new')}
+                    >
+                      Add recurring item
+                    </button>
+                  ) : undefined
+                }
+              />
+            )}
+          </div>
+        </div>
+        <div className="card span-5">
+          <header className="card-header">
+            <div>
+              <h2>Upcoming</h2>
+              <p className="muted">Next expected cash movements.</p>
+            </div>
+          </header>
+          {forecast.events.length > 0 ? (
+            <div className="upcoming-list">
+              {forecast.events.slice(0, 8).map((event) => (
+                <div key={event.id} className="upcoming-row">
+                  <span
+                    className={`movement-icon${event.amountPaise >= 0 ? ' movement-in' : ' movement-out'}`}
+                  >
+                    <Icon
+                      name={event.amountPaise >= 0 ? 'arrow-down' : 'arrow-up'}
+                      size={16}
+                    />
+                  </span>
+                  <span>
+                    <strong>{event.name}</strong>
+                    <small>{format(parseISO(event.date), 'dd MMM yyyy')}</small>
+                  </span>
+                  <strong
+                    className={`tabular${event.amountPaise >= 0 ? ' text-positive' : ' text-danger'}`}
+                  >
+                    {event.amountPaise >= 0 ? '+' : '−'}
+                    {formatMoney(Math.abs(event.amountPaise))}
+                  </strong>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="Nothing scheduled"
+              description="Expected salary, bills, and transfers will appear here."
+            />
+          )}
+        </div>
+      </section>
+
       <section className="card">
         <header className="card-header">
           <div>
@@ -323,68 +329,47 @@ export function PlanPage() {
             description="Add expected salary, bills, subscriptions, or regular transfers."
           />
         ) : (
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Account</th>
-                  <th>Frequency</th>
-                  <th>Next date</th>
-                  <th className="amount-cell">Amount</th>
-                  <th>
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...data.recurringRules]
-                  .sort((left, right) => left.nextDate.localeCompare(right.nextDate))
-                  .map((rule) => (
-                    <tr key={rule.id}>
-                      <td>
-                        <button
-                          type="button"
-                          className="table-primary-action"
-                          onClick={() => setRecurringDialog(rule)}
-                        >
-                          {rule.name}
-                        </button>
-                        {!rule.active ? <small>Paused</small> : null}
-                      </td>
-                      <td>{accountNames.get(rule.accountId) ?? 'Missing account'}</td>
-                      <td>{rule.frequency.replace('-', ' ')}</td>
-                      <td>{format(parseISO(rule.nextDate), 'dd MMM yyyy')}</td>
-                      <td
-                        className={`amount-cell tabular${rule.kind === 'income' ? ' text-positive' : rule.kind === 'expense' ? ' text-danger' : ''}`}
-                      >
-                        {formatMoney(rule.amountPaise)}
-                      </td>
-                      <td className="row-actions">
-                        <button
-                          type="button"
-                          className="icon-button"
-                          aria-label={`Edit ${rule.name}`}
-                          onClick={() => setRecurringDialog(rule)}
-                        >
-                          <Icon name="edit" size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-button"
-                          aria-label={`Delete ${rule.name}`}
-                          onClick={() =>
-                            setDeleteTarget({ type: 'recurring', item: rule })
-                          }
-                        >
-                          <Icon name="trash" size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="record-list" aria-label="Recurring items">
+            {[...data.recurringRules]
+              .sort((left, right) => left.nextDate.localeCompare(right.nextDate))
+              .map((rule) => (
+                <li key={rule.id} className="finance-record">
+                  <div className="finance-record-title">
+                    <button
+                      type="button"
+                      className="table-primary-action"
+                      aria-label={`Edit ${rule.name}`}
+                      onClick={() => setRecurringDialog(rule)}
+                    >
+                      {rule.name}
+                    </button>
+                    <strong
+                      className={`tabular${rule.kind === 'income' ? ' text-positive' : rule.kind === 'expense' ? ' text-danger' : ''}`}
+                    >
+                      {formatMoney(rule.amountPaise)}
+                    </strong>
+                  </div>
+                  <p className="record-meta">
+                    {accountNames.get(rule.accountId) ?? 'Missing account'} ·{' '}
+                    {rule.frequency.replace('-', ' ')} · {rule.kind}
+                  </p>
+                  <div className="cluster cluster-between">
+                    <span>
+                      {rule.active ? 'Next' : 'Paused ·'}{' '}
+                      {format(parseISO(rule.nextDate), 'dd MMM yyyy')}
+                    </span>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`Delete ${rule.name}`}
+                      onClick={() => setDeleteTarget({ type: 'recurring', item: rule })}
+                    >
+                      <Icon name="trash" size={16} />
+                    </button>
+                  </div>
+                </li>
+              ))}
+          </ul>
         )}
       </section>
 

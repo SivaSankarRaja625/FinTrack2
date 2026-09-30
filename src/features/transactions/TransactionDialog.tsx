@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useState } from 'react'
-import { useFieldArray, useForm, useWatch } from 'react-hook-form'
+import { useId, useLayoutEffect, useState } from 'react'
+import { useFieldArray, useForm, useWatch, type FieldPath } from 'react-hook-form'
 import { z } from 'zod'
 
 import { useFinance } from '../../app/FinanceContext'
@@ -94,13 +94,25 @@ export function TransactionDialog({
   const { notify } = useToast()
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [detailsOpen, setDetailsOpen] = useState(
+    Boolean(
+      transaction?.note || transaction?.splits.length || transaction?.cleared === false,
+    ),
+  )
+  const detailsId = useId()
+  const [invalidFocus, setInvalidFocus] = useState<{ field: FieldPath<Values> } | null>(
+    null,
+  )
   const {
     register,
     control,
     handleSubmit,
+    setFocus,
+    getValues,
     formState: { errors },
   } = useForm<Values>({
     resolver: zodResolver(schema),
+    shouldFocusError: false,
     defaultValues: {
       kind: transaction?.kind ?? 'expense',
       accountId:
@@ -126,6 +138,9 @@ export function TransactionDialog({
   const kind = useWatch({ control, name: 'kind' })
   const accountId = useWatch({ control, name: 'accountId' })
   const amount = useWatch({ control, name: 'amount' })
+  useLayoutEffect(() => {
+    if (invalidFocus) setFocus(invalidFocus.field)
+  }, [setFocus, invalidFocus])
   const expenseCategories = data.categories.filter(
     (category) => category.kind === 'expense' && !category.archived,
   )
@@ -142,52 +157,85 @@ export function TransactionDialog({
     })
   }
 
-  const onSubmit = handleSubmit(async (values) => {
-    setSubmitting(true)
-    setSubmitError(null)
-    try {
-      const next: Transaction = {
-        id: transaction?.id ?? newId(),
-        kind: values.kind,
-        accountId: values.accountId,
-        destinationAccountId:
-          values.kind === 'transfer' ? values.destinationAccountId : null,
-        categoryId:
-          values.kind === 'transfer' || values.splits.length > 0
-            ? null
-            : values.categoryId || null,
-        amountPaise: rupeesToPaise(values.amount),
-        date: values.date,
-        description: values.description.trim(),
-        note: values.note.trim(),
-        tags: transaction?.tags ?? [],
-        cleared: values.cleared,
-        splits: values.splits.map((split) => ({
-          id: split.id,
-          categoryId: split.categoryId,
-          amountPaise: rupeesToPaise(split.amount),
-        })),
-        recurringRuleId: transaction?.recurringRuleId ?? null,
-        importBatchId: transaction?.importBatchId ?? null,
-        ...entityTimestamps(transaction ?? undefined),
+  const onSubmit = handleSubmit(
+    async (values) => {
+      setSubmitting(true)
+      setSubmitError(null)
+      try {
+        const next: Transaction = {
+          id: transaction?.id ?? newId(),
+          kind: values.kind,
+          accountId: values.accountId,
+          destinationAccountId:
+            values.kind === 'transfer' ? values.destinationAccountId : null,
+          categoryId:
+            values.kind === 'transfer' || values.splits.length > 0
+              ? null
+              : values.categoryId || null,
+          amountPaise: rupeesToPaise(values.amount),
+          date: values.date,
+          description: values.description.trim(),
+          note: values.note.trim(),
+          tags: transaction?.tags ?? [],
+          cleared: values.cleared,
+          splits: values.splits.map((split) => ({
+            id: split.id,
+            categoryId: split.categoryId,
+            amountPaise: rupeesToPaise(split.amount),
+          })),
+          recurringRuleId: transaction?.recurringRuleId ?? null,
+          importBatchId: transaction?.importBatchId ?? null,
+          ...entityTimestamps(transaction ?? undefined),
+        }
+        await save('transactions', next)
+        notify(transaction ? 'Transaction updated' : 'Transaction added')
+        onClose()
+      } catch (error) {
+        setSubmitError(
+          error instanceof Error ? error.message : 'The transaction could not be saved',
+        )
+      } finally {
+        setSubmitting(false)
       }
-      await save('transactions', next)
-      notify(transaction ? 'Transaction updated' : 'Transaction added')
-      onClose()
-    } catch (error) {
-      setSubmitError(
-        error instanceof Error ? error.message : 'The transaction could not be saved',
+    },
+    (invalid) => {
+      if (invalid.note || invalid.splits || invalid.cleared) setDetailsOpen(true)
+      const firstSplit = Math.max(
+        0,
+        getValues('splits').findIndex((_, index) => invalid.splits?.[index]),
       )
-    } finally {
-      setSubmitting(false)
-    }
-  })
+      const field: FieldPath<Values> = invalid.amount
+        ? 'amount'
+        : invalid.kind
+          ? 'kind'
+          : invalid.description
+            ? 'description'
+            : invalid.accountId
+              ? 'accountId'
+              : invalid.destinationAccountId
+                ? 'destinationAccountId'
+                : invalid.date
+                  ? 'date'
+                  : invalid.note
+                    ? 'note'
+                    : invalid.splits?.[firstSplit]?.categoryId
+                      ? `splits.${firstSplit}.categoryId`
+                      : invalid.splits
+                        ? `splits.${firstSplit}.amount`
+                        : 'cleared'
+      setInvalidFocus({ field })
+    },
+  )
 
   return (
     <Dialog
       open
       title={transaction ? 'Edit transaction' : 'Add transaction'}
-      description="Transfers move money between accounts and do not count as income or expense."
+      description={
+        kind === 'transfer'
+          ? 'Transfers move money between accounts, not income or expense.'
+          : ''
+      }
       onClose={onClose}
       size="large"
       footer={
@@ -209,6 +257,23 @@ export function TransactionDialog({
       <form id="transaction-form" className="stack" onSubmit={onSubmit} noValidate>
         <div className="form-grid">
           <div className="field">
+            <label htmlFor="transaction-amount">Amount</label>
+            <div className="currency-field">
+              <span>₹</span>
+              <input
+                id="transaction-amount"
+                className="input input-large"
+                data-autofocus
+                inputMode="decimal"
+                placeholder="0.00"
+                {...register('amount')}
+              />
+            </div>
+            {errors.amount ? (
+              <p className="field-error">{errors.amount.message}</p>
+            ) : null}
+          </div>
+          <div className="field">
             <label htmlFor="transaction-kind">Type</label>
             <select id="transaction-kind" className="select" {...register('kind')}>
               <option value="expense">Expense</option>
@@ -217,15 +282,35 @@ export function TransactionDialog({
               <option value="adjustment">Balance adjustment</option>
             </select>
           </div>
+          {kind !== 'transfer' ? (
+            <div className="field">
+              <label htmlFor="category">Category</label>
+              <select
+                id="category"
+                className="select"
+                disabled={fields.length > 0}
+                {...register('categoryId')}
+              >
+                <option value="">Uncategorised</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div className="field">
-            <label htmlFor="transaction-date">Date</label>
+            <label htmlFor="description">Description</label>
             <input
-              id="transaction-date"
+              id="description"
               className="input"
-              type="date"
-              {...register('date')}
+              placeholder="Rent, salary, groceries…"
+              {...register('description')}
             />
-            {errors.date ? <p className="field-error">{errors.date.message}</p> : null}
+            {errors.description ? (
+              <p className="field-error">{errors.description.message}</p>
+            ) : null}
           </div>
           <div className="field">
             <label htmlFor="source-account">
@@ -266,123 +351,118 @@ export function TransactionDialog({
                 <p className="field-error">{errors.destinationAccountId.message}</p>
               ) : null}
             </div>
-          ) : (
-            <div className="field">
-              <label htmlFor="category">Category</label>
-              <select
-                id="category"
-                className="select"
-                disabled={fields.length > 0}
-                {...register('categoryId')}
-              >
-                <option value="">Uncategorised</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          ) : null}
           <div className="field">
-            <label htmlFor="transaction-amount">Amount</label>
-            <div className="currency-field">
-              <span>₹</span>
-              <input
-                id="transaction-amount"
-                className="input"
-                inputMode="decimal"
-                placeholder="0.00"
-                {...register('amount')}
-              />
-            </div>
-            {errors.amount ? (
-              <p className="field-error">{errors.amount.message}</p>
-            ) : null}
-          </div>
-          <div className="field">
-            <label htmlFor="description">Description</label>
+            <label htmlFor="transaction-date">Date</label>
             <input
-              id="description"
+              id="transaction-date"
               className="input"
-              placeholder="Rent, salary, groceries…"
-              {...register('description')}
+              type="date"
+              {...register('date')}
             />
-            {errors.description ? (
-              <p className="field-error">{errors.description.message}</p>
-            ) : null}
-          </div>
-          <div className="field field-span">
-            <label htmlFor="transaction-note">Note</label>
-            <textarea id="transaction-note" className="textarea" {...register('note')} />
+            {errors.date ? <p className="field-error">{errors.date.message}</p> : null}
           </div>
         </div>
-
-        {kind === 'expense' ? (
-          <section className="subsection">
-            <div className="cluster cluster-between">
-              <div>
-                <h3>Category split</h3>
-                <p className="field-hint">
-                  Optional. Split one payment across multiple expense categories.
+        <button
+          type="button"
+          className="button button-secondary disclosure-button"
+          aria-expanded={detailsOpen}
+          aria-controls={detailsId}
+          onClick={() => setDetailsOpen(!detailsOpen)}
+        >
+          More details
+        </button>
+        <div id={detailsId} hidden={!detailsOpen}>
+          <div className="stack">
+            <div className="field field-span">
+              <label htmlFor="transaction-note">Note</label>
+              <textarea
+                id="transaction-note"
+                className="textarea"
+                {...register('note')}
+              />
+              {errors.note ? (
+                <p className="field-error" role="alert">
+                  {errors.note.message}
                 </p>
-              </div>
-              <button
-                type="button"
-                className="button button-secondary"
-                onClick={addSplit}
-              >
-                <Icon name="plus" size={16} />
-                Add split
-              </button>
+              ) : null}
             </div>
-            {fields.length > 0 ? (
-              <div className="split-list">
-                {fields.map((field, index) => (
-                  <div key={field.id} className="split-row">
-                    <select
-                      className="select"
-                      aria-label={`Split ${index + 1} category`}
-                      {...register(`splits.${index}.categoryId`)}
-                    >
-                      <option value="">Choose category</option>
-                      {expenseCategories.map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.name}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="currency-field">
-                      <span>₹</span>
-                      <input
-                        className="input"
-                        inputMode="decimal"
-                        aria-label={`Split ${index + 1} amount`}
-                        {...register(`splits.${index}.amount`)}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label={`Remove split ${index + 1}`}
-                      onClick={() => remove(index)}
-                    >
-                      <Icon name="trash" size={17} />
-                    </button>
+            {kind === 'expense' ? (
+              <section className="subsection">
+                <div className="cluster cluster-between">
+                  <div>
+                    <h3>Category split</h3>
+                    <p className="field-hint">
+                      Optional. Split one payment across multiple expense categories.
+                    </p>
                   </div>
-                ))}
-                {errors.splits?.message ? (
-                  <p className="field-error">{errors.splits.message}</p>
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={addSplit}
+                  >
+                    <Icon name="plus" size={16} />
+                    Add split
+                  </button>
+                </div>
+                {fields.length > 0 ? (
+                  <div className="split-list">
+                    {fields.map((field, index) => (
+                      <div key={field.id} className="split-row">
+                        <select
+                          className="select"
+                          aria-label={`Split ${index + 1} category`}
+                          {...register(`splits.${index}.categoryId`)}
+                        >
+                          <option value="">Choose category</option>
+                          {expenseCategories.map((category) => (
+                            <option key={category.id} value={category.id}>
+                              {category.name}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="currency-field">
+                          <span>₹</span>
+                          <input
+                            className="input"
+                            inputMode="decimal"
+                            aria-label={`Split ${index + 1} amount`}
+                            {...register(`splits.${index}.amount`)}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="icon-button"
+                          aria-label={`Remove split ${index + 1}`}
+                          onClick={() => remove(index)}
+                        >
+                          <Icon name="trash" size={17} />
+                        </button>
+                        {errors.splits?.[index]?.categoryId ||
+                        errors.splits?.[index]?.amount ? (
+                          <p className="field-error" role="alert">
+                            {errors.splits[index]?.categoryId?.message ??
+                              errors.splits[index]?.amount?.message}
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                    {errors.splits?.message || errors.splits?.root?.message ? (
+                      <p className="field-error" role="alert">
+                        {errors.splits.message ?? errors.splits.root?.message}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
-              </div>
+              </section>
             ) : null}
-          </section>
-        ) : null}
 
-        <label className="check-row">
-          <input type="checkbox" {...register('cleared')} />
-          <span>This transaction has cleared the account</span>
-        </label>
+            <label className="check-row">
+              <input type="checkbox" {...register('cleared')} />
+              <span>This transaction has cleared the account</span>
+            </label>
+          </div>
+        </div>
         {submitError ? (
           <p className="field-error" role="alert">
             {submitError}

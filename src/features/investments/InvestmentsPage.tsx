@@ -15,6 +15,7 @@ import { ActivityDialog } from './ActivityDialog'
 import { HoldingDialog } from './HoldingDialog'
 import { InvestmentCsvDialog } from './InvestmentCsvDialog'
 import { PriceDialog } from './PriceDialog'
+import { ScrollableTable } from '../../ui/ScrollableTable'
 
 function holdingValue(holding: InvestmentHolding) {
   return multiplyMoney(holding.currentPricePaise, holding.units)
@@ -64,6 +65,7 @@ export function InvestmentsPage() {
       .slice()
       .sort((left, right) => left.date.localeCompare(right.date))
       .map((price) => ({
+        date: price.date,
         label: format(parseISO(price.date), 'dd MMM yy'),
         value: multiplyMoney(price.pricePaise, selected.units),
       })) ?? []
@@ -296,7 +298,7 @@ export function InvestmentsPage() {
               <p className="muted">Recorded changes to units and cost basis.</p>
             </div>
           </header>
-          <div className="table-wrap">
+          <ScrollableTable label="Investment activity values">
             <table className="data-table">
               <thead>
                 <tr>
@@ -323,7 +325,7 @@ export function InvestmentsPage() {
                   ))}
               </tbody>
             </table>
-          </div>
+          </ScrollableTable>
         </section>
       ) : null}
 

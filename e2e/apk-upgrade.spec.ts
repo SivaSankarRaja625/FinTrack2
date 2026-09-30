@@ -35,6 +35,7 @@ test('unlock upgrades an earlier encrypted workspace without losing its accounts
   await page.getByLabel('App PIN').fill(appPin)
   await page.getByRole('button', { name: 'Unlock', exact: true }).click()
   await openSection(page, 'Transactions')
+  await page.locator('.activity-accounts > summary').click()
   await expect(
     page.getByRole('button', { name: 'Kept through upgrade savings ₹100' }),
   ).toBeVisible()

@@ -43,6 +43,9 @@ test('claim sheet reveals sensitive details only while explicitly open', async (
   await dialog.getByLabel('Policy number').fill('EXAMPLE-0042')
   await dialog.getByLabel('Cover amount').fill('500000')
   await dialog.getByLabel('Premium', { exact: true }).fill('12000')
+  await dialog
+    .getByRole('button', { name: 'Nominee and claim details', exact: true })
+    .click()
   await dialog.getByLabel('Claim contact').fill('claims@example.invalid')
   await dialog.getByLabel('Nominee', { exact: true }).fill('Alex')
   await dialog.getByRole('button', { name: 'Add policy' }).click()

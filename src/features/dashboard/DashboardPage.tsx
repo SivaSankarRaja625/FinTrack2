@@ -1,4 +1,5 @@
 import { addDays, format, parseISO } from 'date-fns'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useFinance } from '../../app/FinanceContext'
@@ -11,6 +12,7 @@ import {
 import { currentMonthRange, todayIso } from '../../domain/dates'
 import { formatMoney, percentageOf } from '../../domain/money'
 import { EmptyState, Metric, PageHeader } from '../../ui/Page'
+import { TransactionDialog } from '../transactions/TransactionDialog'
 
 interface UpcomingItem {
   id: string
@@ -22,6 +24,8 @@ interface UpcomingItem {
 
 export function DashboardPage() {
   const { data, alerts } = useFinance()
+  const [expenseOpen, setExpenseOpen] = useState(false)
+  const hasActiveAccount = data.accounts.some((account) => !account.archived)
   const monthRange = currentMonthRange()
   const summary = calculateMonthlySummary(data.transactions, data.categories, monthRange)
   const netWorth = calculateNetWorth(data)
@@ -81,10 +85,10 @@ export function DashboardPage() {
   const activeGoals = data.goals.filter((goal) => !goal.archived).slice(0, 4)
 
   return (
-    <div className="page">
+    <div className="page home-page">
       <PageHeader
         title="Financial overview"
-        description={`${format(new Date(), 'MMMM yyyy')} position from records stored on this device.`}
+        description={`${format(new Date(), 'MMMM yyyy')} · Recorded on this device`}
       />
 
       <section className="dashboard-summary card">
@@ -93,9 +97,8 @@ export function DashboardPage() {
             label="Current net worth"
             value={formatMoney(netWorth.totalPaise)}
             tone={netWorth.totalPaise >= 0 ? 'positive' : 'danger'}
-            detail={`${formatMoney(netWorth.debtPaise)} total debt`}
           />
-          <Link className="button button-secondary button-small" to="/net-worth">
+          <Link className="button-link" to="/net-worth">
             View composition
           </Link>
         </div>
@@ -110,33 +113,39 @@ export function DashboardPage() {
         </div>
       </section>
 
-      {recentTransactions.length === 0 ? (
-        <section className="card">
-          <header className="card-header">
-            <div>
-              <h2>
-                {data.accounts.length === 0
-                  ? 'Start with an account'
-                  : 'Record your first transaction'}
-              </h2>
-              <p className="muted">
-                {data.accounts.length === 0
-                  ? 'Add a bank, cash, or card account to track balances.'
-                  : 'Add income or an expense to build your activity history.'}
-              </p>
-            </div>
-          </header>
-          <div className="card-body">
-            <Link className="button" to="/transactions">
-              View ledger
-            </Link>
-          </div>
-        </section>
-      ) : null}
+      {hasActiveAccount ? (
+        <button type="button" className="button" onClick={() => setExpenseOpen(true)}>
+          Add expense
+        </button>
+      ) : (
+        <Link className="button" to="/transactions">
+          Add account
+        </Link>
+      )}
 
       <section className="page-grid">
-        {data.recurringRules.length + data.loans.length + data.insurancePolicies.length >
-        0 ? (
+        {alerts.length > 0 ? (
+          <section className="card">
+            <header className="card-header">
+              <h2>Needs attention</h2>
+              <Link className="button-link" to="/alerts">
+                View all ({alerts.length})
+              </Link>
+            </header>
+            <div className="dashboard-alerts">
+              {alerts.slice(0, 1).map((alert) => (
+                <Link key={alert.key} to={alert.route} className="dashboard-alert-row">
+                  <span className={`status-dot status-${alert.severity}`} />
+                  <span>
+                    <strong>{alert.title}</strong>
+                    <small>{alert.detail}</small>
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </section>
+        ) : null}
+        {upcoming.length > 0 ? (
           <div className="card span-7">
             <header className="card-header">
               <div>
@@ -154,7 +163,7 @@ export function DashboardPage() {
               />
             ) : (
               <div className="simple-list">
-                {upcoming.slice(0, 7).map((item) => (
+                {upcoming.slice(0, 3).map((item) => (
                   <Link key={item.id} className="dashboard-list-row" to={item.route}>
                     <time dateTime={item.date}>
                       <strong>{format(parseISO(item.date), 'dd')}</strong>
@@ -171,120 +180,93 @@ export function DashboardPage() {
             )}
           </div>
         ) : null}
-
-        <div className="card span-5">
-          <header className="card-header">
-            <div>
-              <h2>Needs attention</h2>
-              <p className="muted">Highest-priority active alerts.</p>
-            </div>
-            <Link className="button-link" to="/alerts">
-              View all
-            </Link>
-          </header>
-          {alerts.length === 0 ? (
-            <EmptyState
-              title="Nothing needs attention"
-              description="Enabled alert rules are within their thresholds."
-            />
-          ) : (
-            <div className="dashboard-alerts">
-              {alerts.slice(0, 5).map((alert) => (
-                <Link key={alert.key} to={alert.route} className="dashboard-alert-row">
-                  <span className={`status-dot status-${alert.severity}`} />
-                  <span>
-                    <strong>{alert.title}</strong>
-                    <small>{alert.detail}</small>
-                  </span>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
       </section>
 
       {data.budgets.length > 0 || activeGoals.length > 0 ? (
-        <section className="page-grid">
-          {data.budgets.length > 0 ? (
-            <div className="card span-7">
-              <header className="card-header">
-                <div>
-                  <h2>Budget status</h2>
-                  <p className="muted">Current-month category allocations.</p>
-                </div>
-                <Link className="button-link" to="/plan">
-                  Manage budgets
-                </Link>
-              </header>
-              {budgetStatuses.length === 0 ? (
-                <EmptyState
-                  title="No budgets for this month"
-                  description="Set category limits in Plan to compare spending with allocations."
-                />
-              ) : (
-                <div className="budget-overview">
-                  {budgetStatuses.slice(0, 5).map((status) => (
-                    <div key={status.budget.id} className="allocation-row">
-                      <div className="cluster cluster-between">
-                        <span>{status.budget.name}</span>
-                        <span className="tabular">
-                          {formatMoney(status.spentPaise)} of{' '}
-                          {formatMoney(status.effectiveLimitPaise)}
-                        </span>
+        <details className="home-plan-details card">
+          <summary>Budgets and goals</summary>
+          <section className="page-grid">
+            {data.budgets.length > 0 ? (
+              <div className="card span-7">
+                <header className="card-header">
+                  <div>
+                    <h2>Budget status</h2>
+                    <p className="muted">Current-month category allocations.</p>
+                  </div>
+                  <Link className="button-link" to="/plan">
+                    Manage budgets
+                  </Link>
+                </header>
+                {budgetStatuses.length === 0 ? (
+                  <EmptyState
+                    title="No budgets for this month"
+                    description="Set category limits in Plan to compare spending with allocations."
+                  />
+                ) : (
+                  <div className="budget-overview">
+                    {budgetStatuses.slice(0, 5).map((status) => (
+                      <div key={status.budget.id} className="allocation-row">
+                        <div className="cluster cluster-between">
+                          <span>{status.budget.name}</span>
+                          <span className="tabular">
+                            {formatMoney(status.spentPaise)} of{' '}
+                            {formatMoney(status.effectiveLimitPaise)}
+                          </span>
+                        </div>
+                        <div className="progress-track">
+                          <span
+                            className={status.remainingPaise < 0 ? 'progress-danger' : ''}
+                            style={{ width: `${Math.min(100, status.usedPercent)}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="progress-track">
-                        <span
-                          className={status.remainingPaise < 0 ? 'progress-danger' : ''}
-                          style={{ width: `${Math.min(100, status.usedPercent)}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : null}
-          {activeGoals.length > 0 ? (
-            <div className="card span-5">
-              <header className="card-header">
-                <div>
-                  <h2>Goal progress</h2>
-                  <p className="muted">Manual or linked-account saved amounts.</p>
-                </div>
-                <Link className="button-link" to="/goals">
-                  View goals
-                </Link>
-              </header>
-              <div className="budget-overview">
-                {activeGoals.map((goal) => {
-                  const currentPaise = goal.linkedAccountId
-                    ? Math.max(0, accountBalances.get(goal.linkedAccountId) ?? 0)
-                    : goal.currentPaise
-                  return (
-                    <div key={goal.id} className="allocation-row">
-                      <div className="cluster cluster-between">
-                        <span>{goal.name}</span>
-                        <strong>
-                          {percentageOf(currentPaise, goal.targetPaise).toFixed(0)}%
-                        </strong>
-                      </div>
-                      <div className="progress-track">
-                        <span
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              percentageOf(currentPaise, goal.targetPaise),
-                            )}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )
-                })}
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          ) : null}
-        </section>
+            ) : null}
+            {activeGoals.length > 0 ? (
+              <div className="card span-5">
+                <header className="card-header">
+                  <div>
+                    <h2>Goal progress</h2>
+                    <p className="muted">Manual or linked-account saved amounts.</p>
+                  </div>
+                  <Link className="button-link" to="/goals">
+                    View goals
+                  </Link>
+                </header>
+                <div className="budget-overview">
+                  {activeGoals.map((goal) => {
+                    const currentPaise = goal.linkedAccountId
+                      ? Math.max(0, accountBalances.get(goal.linkedAccountId) ?? 0)
+                      : goal.currentPaise
+                    return (
+                      <div key={goal.id} className="allocation-row">
+                        <div className="cluster cluster-between">
+                          <span>{goal.name}</span>
+                          <strong>
+                            {percentageOf(currentPaise, goal.targetPaise).toFixed(0)}%
+                          </strong>
+                        </div>
+                        <div className="progress-track">
+                          <span
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                percentageOf(currentPaise, goal.targetPaise),
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </section>
+        </details>
       ) : null}
 
       {recentTransactions.length > 0 ? (
@@ -334,6 +316,9 @@ export function DashboardPage() {
             ))}
           </div>
         </section>
+      ) : null}
+      {expenseOpen ? (
+        <TransactionDialog transaction={null} onClose={() => setExpenseOpen(false)} />
       ) : null}
     </div>
   )

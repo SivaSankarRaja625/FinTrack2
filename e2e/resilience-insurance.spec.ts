@@ -2,6 +2,39 @@ import { expect } from '@playwright/test'
 
 import { appPin, createWorkspace, openSection, test } from './support/finance'
 
+test('policy details retain hidden values and reveal invalid coverage before saving', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-mobile')
+  await createWorkspace(page)
+  await openSection(page, 'Insurance')
+  await page.getByRole('button', { name: 'Add policy', exact: true }).first().click()
+  const dialog = page.getByRole('dialog', { name: 'Add insurance policy' })
+  await dialog.getByLabel('Insurer', { exact: true }).fill('Example insurer')
+  await dialog.getByLabel('Policy name').fill('Personal health')
+  await dialog.getByLabel('Cover amount').fill('500000')
+  await dialog.getByLabel('Premium', { exact: true }).fill('12000')
+  await expect(dialog.getByLabel('Deductible (if applicable)')).toBeHidden()
+  const coverage = dialog.getByRole('button', { name: 'Coverage details', exact: true })
+  await coverage.click()
+  await dialog.getByLabel('Deductible (if applicable)').fill('-100')
+  await coverage.click()
+  await dialog.getByRole('button', { name: 'Add policy', exact: true }).click()
+  await expect(coverage).toHaveAttribute('aria-expanded', 'true')
+  await expect(dialog.getByLabel('Deductible (if applicable)')).toBeFocused()
+  await expect(dialog.getByRole('alert')).toContainText('Deductible cannot be negative')
+  await dialog.getByLabel('Deductible (if applicable)').fill('10000')
+  await coverage.click()
+  await coverage.click()
+  await expect(dialog.getByLabel('Deductible (if applicable)')).toHaveValue('10000')
+  await dialog.getByRole('button', { name: 'Add policy', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await page.getByRole('button', { name: 'Edit Personal health', exact: true }).click()
+  await expect(
+    page.getByRole('dialog').getByLabel('Deductible (if applicable)'),
+  ).toHaveValue('10000.00')
+})
+
 test('insurance shows individual cover rather than adding unlike policies', async ({
   page,
 }, testInfo) => {
@@ -14,6 +47,7 @@ test('insurance shows individual cover rather than adding unlike policies', asyn
   await health.getByLabel('Policy name').fill('Family health')
   await health.getByLabel('Cover amount').fill('500000')
   await health.getByLabel('Premium', { exact: true }).fill('12000')
+  await health.getByRole('button', { name: 'Coverage details', exact: true }).click()
   await health.getByLabel('Insured people').fill('Ananya, Amma')
   await health.getByLabel('Cover source').selectOption('personal')
   await health.getByRole('button', { name: 'Add policy' }).click()
@@ -30,6 +64,7 @@ test('insurance shows individual cover rather than adding unlike policies', asyn
   await term.getByLabel('Policy name').fill('Term cover')
   await term.getByLabel('Cover amount').fill('10000000')
   await term.getByLabel('Premium', { exact: true }).fill('15000')
+  await term.getByRole('button', { name: 'Coverage details', exact: true }).click()
   await term.getByLabel('Insured people').fill('Ananya')
   await term.getByRole('button', { name: 'Add policy' }).click()
   await expect(page.getByText('₹1,00,00,000 cover')).toBeVisible()

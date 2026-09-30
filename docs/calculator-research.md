@@ -45,8 +45,11 @@ never a runtime network request.
 - **Protection and debt (later):** Term-insurance cover gap, loan prepayment
   versus scheduled interest saved, debt-to-income, and emergency-fund runway.
   Insurance cover is not an asset or investment return. A loan-prepayment
-  scenario needs changed term or EMI, fees, and liquidity. FinTrack already
-  calculates baseline EMI schedules.
+  scenario needs changed term or EMI, fees, and liquidity. The prepayment
+  illustration uses remaining EMIs and a prepayment-after-EMI number, not
+  start/end dates; it labels schedules by EMI number without implying a
+  calendar payoff date. Saved loans retain actual dates for due reminders
+  and cash-flow planning. FinTrack already calculates baseline EMI schedules.
 - **Existing FinTrack tools:** Loan EMI/schedule, goal contributions, net-worth
   composition/history, and cash-flow forecast. Extend or link these instead
   of publishing duplicate calculators with conflicting formulas.

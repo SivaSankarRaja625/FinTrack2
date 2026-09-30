@@ -111,6 +111,7 @@ html {
   min-height: 100%;
   overflow-x: hidden;
   background: var(--surface-subtle);
+  scroll-padding-block: 80px;
 }
 
 body {

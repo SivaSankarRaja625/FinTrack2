@@ -31,6 +31,12 @@ backup, reselect the **same saved bytes**, and authenticate them with the safety
 PIN; only then is replacement permitted. Store saved files separately from the
 device and guard both PINs.
 
+Settings guides complete backups through Create a backup file, then Reopen and
+verify. A pending-verification prompt follows a download/share attempt; only
+authentication of a user-selected saved file updates verified-backup metadata.
+Verify an existing file remains available independently. Restore is separate and
+retains candidate validation and same-byte safety-file checks.
+
 Restore clears backup-verification and local-notification catch-up history from
 the imported device: the new installation cannot claim the old device checked a
 file or delivered a notification. The Android snapshot's old “prepared” timestamp

@@ -6,22 +6,21 @@ const loan = {
   balancePaise: 1_200_000,
   annualRatePercent: '0',
   remainingMonths: 12,
-  firstPaymentDate: '2026-01-31',
   prepaymentMonth: 3,
   prepaymentPaise: 300_000,
   feePaise: 0,
 } as const
 
 describe('reducing-balance prepayment', () => {
-  it('keeps the EMI and ends three months earlier for a zero-rate loan', () => {
+  it('keeps the EMI and ends at EMI 9 using only a remaining tenure', () => {
     const result = compareLoanPrepayment({ ...loan, strategy: 'reduce-tenure' })
     expect(result.baseline.rows).toHaveLength(12)
     expect(result.prepaid.rows).toHaveLength(9)
     expect(result.baseline.monthlyEmiPaise).toBe(100_000)
     expect(result.prepaid.monthlyEmiPaise).toBe(100_000)
     expect(result.prepaid.rows[2]?.prepaymentPaise).toBe(300_000)
-    expect(result.prepaid.rows[2]?.date).toBe('2026-03-31')
-    expect(result.prepaid.rows.at(-1)?.date).toBe('2026-09-30')
+    expect(result.prepaid.rows[2]?.emiNumber).toBe(3)
+    expect(result.prepaid.rows.at(-1)?.emiNumber).toBe(9)
     expect(result.monthsSaved).toBe(3)
     expect(result.netInterestSavedPaise).toBe(0)
   })

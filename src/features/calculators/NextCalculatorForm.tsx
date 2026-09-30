@@ -259,7 +259,6 @@ export function NextCalculatorForm({
               balancePaise: money('balance', 'Outstanding loan balance', true),
               annualRatePercent: rate('loanRate', 'Annual loan rate'),
               remainingMonths: integer('months', 'Remaining EMIs'),
-              firstPaymentDate: date('firstPayment', 'Next EMI date'),
               prepaymentPaise: money('prepayment', 'Prepayment amount', true),
               prepaymentMonth: integer('prepayMonth', 'Prepayment after EMI number'),
               feePaise,
@@ -282,8 +281,8 @@ export function NextCalculatorForm({
     <form className="card card-body calculator-form" noValidate onSubmit={submit}>
       <h2>Edit assumptions</h2>
       <p className="field-hint">
-        Enter your own dated deposits, rates and obligations. No live product rates or
-        account balances are fetched or assumed.
+        Enter your own amounts, rates and timing. No live product rates or account
+        balances are fetched or assumed.
       </p>
       {kind === 'ppf' ? (
         <fieldset className="calculator-fieldset">
@@ -374,7 +373,6 @@ export function NextCalculatorForm({
           {field('balance', 'Outstanding loan balance', 'money')}
           {field('loanRate', 'Annual loan rate')}
           {field('months', 'Remaining EMIs')}
-          {field('firstPayment', 'Next EMI date', 'date')}
           {field('currentEmi', 'Current monthly EMI (optional)', 'money')}
           {field('prepayment', 'Prepayment amount', 'money')}
           {field('prepayMonth', 'Prepayment after EMI number')}

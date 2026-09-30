@@ -27,6 +27,13 @@ beforeEach(() => {
 })
 
 describe('Android exports', () => {
+  it('surfaces cancelled or failed native sharing instead of returning a saved-file result', async () => {
+    mocks.share.mockRejectedValueOnce(new Error('Share cancelled'))
+    await expect(
+      downloadBytes(new Uint8Array([1]), 'backup.finapp', 'application/octet-stream'),
+    ).rejects.toThrow('Share cancelled')
+  })
+
   it('writes exports to the app cache before opening the native share sheet', async () => {
     const result = await downloadText('date,amount', 'transactions.csv', 'text/csv')
 

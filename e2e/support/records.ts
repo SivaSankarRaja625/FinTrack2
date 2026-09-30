@@ -1,6 +1,11 @@
 import { expect, type Page } from '@playwright/test'
 
 export async function addAccount(page: Page, name: string, openingBalance = '0') {
+  const accounts = page.locator('.activity-accounts')
+  await expect(accounts).toBeVisible()
+  if (!(await accounts.evaluate((element) => element.hasAttribute('open')))) {
+    await accounts.locator('summary').click()
+  }
   await page.getByRole('button', { name: 'Add account' }).first().click()
   const dialog = page.getByRole('dialog', { name: 'Add account' })
   await dialog.getByLabel('Account name').fill(name)
@@ -34,6 +39,7 @@ export async function addTransaction(page: Page, transaction: NewTransaction) {
     await dialog.getByLabel('To account').selectOption({ label: transaction.destination })
   }
   if (transaction.splits) {
+    await dialog.getByRole('button', { name: 'More details', exact: true }).click()
     for (const [index, split] of transaction.splits.entries()) {
       await dialog.getByRole('button', { name: 'Add split' }).click()
       await dialog

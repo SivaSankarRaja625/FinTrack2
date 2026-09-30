@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright'
 import { expect, type Locator, type Page } from '@playwright/test'
 
 import { createWorkspace, openSection, test, testDate } from './support/finance'
@@ -173,6 +174,13 @@ test('manual debt and valuations update net worth without rewriting a snapshot',
 }) => {
   await addAccount(page, 'Main savings', '20000')
   await openFinanceSection(page, 'Net worth')
+  await page.setViewportSize({ width: 390, height: 844 })
+  const diagramBounds = await page.locator('.composition-diagram').boundingBox()
+  const navigationBounds = await page
+    .getByRole('navigation', { name: 'Primary sections' })
+    .boundingBox()
+  expect(diagramBounds!.y + diagramBounds!.height).toBeLessThan(navigationBounds!.y)
+  await page.setViewportSize({ width: 320, height: 720 })
   await page.getByRole('button', { name: 'Add valuation' }).click()
   const asset = page.getByRole('dialog', { name: 'Add asset or liability' })
   await asset.getByLabel('Name').fill('Workshop equipment')
@@ -183,11 +191,17 @@ test('manual debt and valuations update net worth without rewriting a snapshot',
   await asset.getByLabel('Valuation date').fill('2025-10-01')
   await asset.getByRole('button', { name: 'Add valuation' }).click()
   await expect(
-    page.locator('tr').filter({ hasText: 'Workshop equipment' }),
+    page
+      .getByRole('list', { name: 'Manual valuations' })
+      .locator('li')
+      .filter({ hasText: 'Workshop equipment' }),
   ).toContainText('Stale value')
   await expectPhoneFits(
     page,
-    page.locator('tr').filter({ hasText: 'Workshop equipment' }),
+    page
+      .getByRole('list', { name: 'Manual valuations' })
+      .locator('li')
+      .filter({ hasText: 'Workshop equipment' }),
   )
   await page.getByRole('button', { name: 'Add liability' }).click()
   const liability = page.getByRole('dialog', { name: 'Add asset or liability' })
@@ -200,9 +214,42 @@ test('manual debt and valuations update net worth without rewriting a snapshot',
   await expect(metric(page, 'Debt').locator('.metric-detail')).toHaveText(
     '17.1% of gross assets',
   )
-  await expectPhoneFits(page, page.locator('tr').filter({ hasText: 'Personal payable' }))
+  const composition = page.getByRole('group', { name: 'Net worth composition' })
+  await expect(
+    composition.getByRole('img', { name: /positive components.*deductions/i }),
+  ).toBeVisible()
+  const assetsBucket = composition.getByRole('button', { name: /Manual assets.*₹50,000/ })
+  await expect(assetsBucket).toContainText('1 stale')
+  await assetsBucket.click()
+  const detail = composition.getByRole('region', { name: 'Selected net worth component' })
+  await expect(detail).toContainText('₹50,000')
+  await expect(detail).toContainText('Workshop equipment')
+  await expect(detail).toContainText('Stale')
+  await composition.getByRole('button', { name: /Debt.*₹12,000/ }).click()
+  await expect(detail).toContainText('₹12,000')
+  await expect(detail).toContainText('Debt is subtracted')
+  await expectPhoneFits(page, composition)
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'dark'
+  })
+  const audit = await new AxeBuilder({ page })
+    .include('.net-worth-composition')
+    .withTags(['wcag2a', 'wcag2aa'])
+    .analyze()
+  expect(
+    audit.violations.filter(
+      ({ impact }) => impact === 'critical' || impact === 'serious',
+    ),
+  ).toEqual([])
+  await expectPhoneFits(
+    page,
+    page
+      .getByRole('list', { name: 'Manual valuations' })
+      .locator('li')
+      .filter({ hasText: 'Personal payable' }),
+  )
 
-  await page.getByRole('button', { name: 'Record snapshot' }).click()
+  await page.getByRole('button', { name: 'Save today\u0027s net worth' }).click()
   await expect(page.locator('.toast-region')).toContainText('Net worth snapshot recorded')
   await page.getByRole('button', { name: 'Edit Workshop equipment' }).click()
   const edit = page.getByRole('dialog', { name: 'Edit valuation' })
@@ -210,7 +257,12 @@ test('manual debt and valuations update net worth without rewriting a snapshot',
   await edit.getByLabel('Valuation date').fill(testDate)
   await edit.getByRole('button', { name: 'Save changes' }).click()
   await expect(metric(page, 'Net worth').locator('.metric-value')).toHaveText('₹70,000')
-  await page.getByRole('button', { name: 'Record snapshot' }).click()
+  await composition.getByRole('button', { name: /Manual assets.*₹62,000/ }).click()
+  await expect(detail).not.toContainText('Stale')
+  await expect(
+    composition.getByRole('button', { name: /Manual assets.*₹62,000/ }),
+  ).not.toContainText('stale')
+  await page.getByRole('button', { name: 'Save today\u0027s net worth' }).click()
   await expect(page.locator('.toast-region')).toContainText('Today’s snapshot updated')
   await page.clock.setFixedTime(new Date('2026-02-15T10:00:00+05:30'))
   await page.getByRole('button', { name: 'Delete Personal payable' }).click()
@@ -224,6 +276,23 @@ test('manual debt and valuations update net worth without rewriting a snapshot',
   await expect(history.locator('tbody tr').first()).toContainText('₹70,000')
   await expect(history.locator('tbody tr').last()).toContainText('₹82,000')
   await expectPhoneFits(page, page.getByRole('img', { name: 'Net worth history' }))
+})
+
+test('net-worth composition remains readable with a large balance at 320px', async ({
+  page,
+}) => {
+  await addAccount(page, 'Large balance account', '999999999999')
+  await openFinanceSection(page, 'Net worth')
+  const composition = page.getByRole('group', { name: 'Net worth composition' })
+  const cash = composition.getByRole('button', {
+    name: /Cash & accounts.*₹9,99,99,99,99,999/,
+  })
+  await expect(cash).toBeVisible()
+  const amount = cash.locator('strong')
+  expect(await amount.evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(
+    await amount.evaluate((element) => element.clientWidth),
+  )
+  await expectPhoneFits(page, composition)
 })
 
 test('a goal follows a linked balance while target-date scenarios remain unsaved', async ({

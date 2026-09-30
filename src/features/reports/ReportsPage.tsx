@@ -11,11 +11,12 @@ import { indianFinancialYearRange, isDateInRange } from '../../domain/dates'
 import { formatMoney, multiplyMoney } from '../../domain/money'
 import type { DateRange, Transaction } from '../../domain/types'
 import { downloadText } from '../../platform/files'
-import { TrendChart } from '../../ui/Chart'
 import { ConfirmDialog } from '../../ui/Dialog'
 import { Icon } from '../../ui/Icon'
 import { EmptyState, Metric, PageHeader } from '../../ui/Page'
 import { useToast } from '../../ui/Toast'
+import { CashFlowChart } from './CashFlowChart'
+import { ScrollableTable } from '../../ui/ScrollableTable'
 
 function csvCell(value: string | number): string {
   let text = String(value)
@@ -44,7 +45,10 @@ function monthlyCashFlow(
   range: DateRange,
   mode: 'month' | 'financial-year',
 ) {
-  const buckets = new Map<string, { income: number; expense: number }>()
+  const buckets = new Map<
+    string,
+    { income: number; expense: number; transactions: Transaction[] }
+  >()
   for (const transaction of transactions) {
     if (
       !isDateInRange(transaction.date, range) ||
@@ -53,9 +57,10 @@ function monthlyCashFlow(
       continue
     }
     const key = mode === 'month' ? transaction.date : transaction.date.slice(0, 7)
-    const bucket = buckets.get(key) ?? { income: 0, expense: 0 }
+    const bucket = buckets.get(key) ?? { income: 0, expense: 0, transactions: [] }
     if (transaction.kind === 'income') bucket.income += transaction.amountPaise
     if (transaction.kind === 'expense') bucket.expense += transaction.amountPaise
+    bucket.transactions.push(transaction)
     buckets.set(key, bucket)
   }
   return [...buckets.entries()]
@@ -79,6 +84,9 @@ export function ReportsPage() {
   const [monthInput, setMonthInput] = useState(month)
   const invalidMonth = !isValidMonth(monthInput)
   const [exportOpen, setExportOpen] = useState(false)
+  const [selection, setSelection] = useState<{ period: string; interval: string } | null>(
+    null,
+  )
   const range = periodRange(mode, month)
   const filteredTransactions = data.transactions.filter((transaction) =>
     isDateInRange(transaction.date, range),
@@ -87,6 +95,16 @@ export function ReportsPage() {
   const netWorth = calculateNetWorth(data)
   const investments = calculateInvestmentSummary(data.investments)
   const flow = monthlyCashFlow(data.transactions, range, mode)
+  const periodKey = `${mode}:${range.start}:${range.end}`
+  const selected =
+    (selection?.period === periodKey
+      ? flow.find((item) => item.key === selection.interval)
+      : undefined) ?? flow.at(-1)
+  const selectedLabel = selected
+    ? mode === 'month'
+      ? format(parseISO(selected.key), 'dd MMM yyyy')
+      : format(parse(`${selected.key}-01`, 'yyyy-MM-dd', new Date()), 'MMMM yyyy')
+    : ''
   const categorySpend = (() => {
     const totals = new Map<string, number>()
     for (const transaction of filteredTransactions.filter(
@@ -163,7 +181,7 @@ export function ReportsPage() {
     <div className="page reports-page">
       <PageHeader
         title="Reports"
-        description="Cash flow, categories, debt, investments, and policy schedules from local records."
+        description=""
         action={
           <button
             type="button"
@@ -187,8 +205,8 @@ export function ReportsPage() {
               setMode(event.target.value as 'month' | 'financial-year')
             }
           >
-            <option value="month">Calendar month</option>
-            <option value="financial-year">Indian financial year</option>
+            <option value="month">Monthly</option>
+            <option value="financial-year">Apr–Mar year</option>
           </select>
         </label>
         <div className="report-month-field">
@@ -245,46 +263,95 @@ export function ReportsPage() {
         <div className="card span-8">
           <header className="card-header">
             <div>
-              <h2>Net cash flow</h2>
-              <p className="muted">Income less expenses; transfers are excluded.</p>
+              <h2>Income and expenses</h2>
+              <p className="muted">
+                Select an active interval. Transfers and adjustments excluded.
+              </p>
             </div>
           </header>
           <div className="card-body">
-            {flow.length > 1 ? (
-              <TrendChart
-                label="Net cash flow by report interval"
-                points={flow.map((item) => ({ label: item.label, value: item.net }))}
+            {flow.length > 0 && selected ? (
+              <CashFlowChart
+                points={flow}
+                selectedKey={selected.key}
+                onSelect={(interval) => setSelection({ period: periodKey, interval })}
               />
             ) : (
               <EmptyState
-                title="Not enough dated activity for a trend"
-                description="The exact period totals remain available above."
+                title="No income or expenses in this period"
+                description="The exact period totals remain available above; transfers do not count as income or expenses."
               />
             )}
           </div>
-          {flow.length > 0 ? (
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Interval</th>
-                    <th className="amount-cell">Income</th>
-                    <th className="amount-cell">Expenses</th>
-                    <th className="amount-cell">Net</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {flow.map((item) => (
-                    <tr key={item.key}>
-                      <td>{item.label}</td>
-                      <td className="amount-cell tabular">{formatMoney(item.income)}</td>
-                      <td className="amount-cell tabular">{formatMoney(item.expense)}</td>
-                      <td className="amount-cell tabular">{formatMoney(item.net)}</td>
-                    </tr>
+          {selected ? (
+            <section className="report-selected" aria-label="Selected report interval">
+              <h3>{selectedLabel}</h3>
+              <div className="report-selected-metrics">
+                <Metric label="Income" value={formatMoney(selected.income)} />
+                <Metric label="Expenses" value={formatMoney(selected.expense)} />
+                <Metric
+                  label="Net cash flow"
+                  value={formatMoney(selected.net)}
+                  tone={selected.net >= 0 ? 'positive' : 'danger'}
+                />
+              </div>
+              <ul
+                className="report-selected-transactions"
+                aria-label="Income and expense transactions"
+              >
+                {[...selected.transactions]
+                  .sort(
+                    (left, right) =>
+                      right.date.localeCompare(left.date) ||
+                      right.createdAt.localeCompare(left.createdAt),
+                  )
+                  .map((transaction) => (
+                    <li key={transaction.id}>
+                      <span>
+                        <strong>{transaction.description}</strong>
+                        <small>{format(parseISO(transaction.date), 'dd MMM yyyy')}</small>
+                      </span>
+                      <strong
+                        className={`tabular${transaction.kind === 'expense' ? ' text-danger' : ''}`}
+                      >
+                        {transaction.kind === 'expense' ? '−' : ''}
+                        {formatMoney(transaction.amountPaise)}
+                      </strong>
+                    </li>
                   ))}
-                </tbody>
-              </table>
-            </div>
+              </ul>
+            </section>
+          ) : null}
+          {flow.length > 0 ? (
+            <details className="chart-values report-values">
+              <summary>View values</summary>
+              <ScrollableTable label="Cash-flow values">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Interval</th>
+                      <th className="amount-cell">Income</th>
+                      <th className="amount-cell">Expenses</th>
+                      <th className="amount-cell">Net</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {flow.map((item) => (
+                      <tr key={item.key}>
+                        <td>{item.label}</td>
+                        <td className="amount-cell tabular">
+                          {formatMoney(item.income)}
+                        </td>
+                        <td className="amount-cell tabular">
+                          {formatMoney(item.expense)}
+                        </td>
+                        <td className="amount-cell tabular">{formatMoney(item.net)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </ScrollableTable>
+            </details>
           ) : null}
         </div>
         <div className="card span-4">
@@ -347,10 +414,7 @@ export function ReportsPage() {
             </div>
           </header>
           {investmentAllocation.length === 0 ? (
-            <EmptyState
-              title="No included holdings"
-              description="Investment allocation appears after holdings are added."
-            />
+            <p className="card-body muted">No included holdings.</p>
           ) : (
             <div className="composition-list">
               {investmentAllocation.map(([type, value]) => (
@@ -370,10 +434,7 @@ export function ReportsPage() {
             </div>
           </header>
           {data.insurancePolicies.filter((policy) => policy.active).length === 0 ? (
-            <EmptyState
-              title="No active policies"
-              description="Policy premium dates appear after policies are added."
-            />
+            <p className="card-body muted">No active policies.</p>
           ) : (
             <div className="composition-list">
               {data.insurancePolicies

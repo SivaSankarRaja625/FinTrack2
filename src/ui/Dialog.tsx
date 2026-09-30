@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffectEvent, useId, useLayoutEffect, useRef, type ReactNode } from 'react'
 
 import { Icon } from './Icon'
 
@@ -10,6 +10,23 @@ interface DialogProps {
   footer?: ReactNode
   onClose: () => void
   size?: 'small' | 'medium' | 'large'
+}
+
+function focusableControls(panel: HTMLElement) {
+  return Array.from(
+    panel.querySelectorAll<HTMLElement>(
+      'button, input, select, textarea, a[href], summary, [tabindex]',
+    ),
+  ).filter((element) => {
+    if (
+      element.tabIndex < 0 ||
+      element.matches(':disabled, input[type="hidden"]') ||
+      element.closest('[hidden], [inert]')
+    )
+      return false
+    const collapsed = element.closest('details:not([open])')
+    return !collapsed || element === collapsed.querySelector(':scope > summary')
+  })
 }
 
 export function Dialog({
@@ -24,30 +41,31 @@ export function Dialog({
   const titleId = useId()
   const descriptionId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
+  const handleClose = useEffectEvent(onClose)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return
     const previousFocus =
       document.activeElement instanceof HTMLElement ? document.activeElement : null
     const panel = panelRef.current
+    const controls = panel ? focusableControls(panel) : []
     const firstFocusable =
-      panel?.querySelector<HTMLElement>('[data-autofocus]') ??
-      panel?.querySelector<HTMLElement>(
-        '.dialog-content input:not([disabled]), .dialog-content select:not([disabled]), .dialog-content textarea:not([disabled]), .dialog-content button:not([disabled])',
-      ) ??
-      panel?.querySelector<HTMLElement>('button:not([disabled])')
+      controls.find((element) => element.hasAttribute('data-autofocus')) ??
+      controls.find((element) => element.closest('.dialog-content')) ??
+      controls[0]
     firstFocusable?.focus()
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') handleClose()
       if (event.key !== 'Tab' || !panel) return
-      const focusable = Array.from(
-        panel.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href]',
-        ),
-      )
+      const focusable = focusableControls(panel)
       const first = focusable.at(0)
       const last = focusable.at(-1)
+      if (!panel.contains(document.activeElement)) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : first)?.focus()
+        return
+      }
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault()
         last?.focus()
@@ -57,13 +75,31 @@ export function Dialog({
       }
     }
     document.addEventListener('keydown', onKeyDown)
+    const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
       document.removeEventListener('keydown', onKeyDown)
-      document.body.style.overflow = ''
+      document.body.style.overflow = previousOverflow
       previousFocus?.focus()
     }
-  }, [onClose, open])
+  }, [open])
+
+  useLayoutEffect(() => {
+    const panel = panelRef.current
+    if (!open || !panel) return
+    const active = document.activeElement
+    if (
+      active instanceof HTMLElement &&
+      panel.contains(active) &&
+      !active.matches(':disabled') &&
+      !active.closest('[hidden], [inert]')
+    )
+      return
+    const controls = focusableControls(panel)
+    const next =
+      controls.find((element) => element.closest('.dialog-content')) ?? controls[0]
+    next?.focus()
+  })
 
   if (!open) return null
 

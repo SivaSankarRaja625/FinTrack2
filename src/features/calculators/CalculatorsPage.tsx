@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 
 import { compareScenarios } from '../../domain/calculators/compare'
 import type { ScenarioResult } from '../../domain/calculators/types'
@@ -63,6 +63,20 @@ export function CalculatorsPage() {
   const [inflation, setInflation] = useState('')
   const [compared, setCompared] = useState<Comparison | null>(null)
   const [compareError, setCompareError] = useState<string | null>(null)
+  const [chooserOpen, setChooserOpen] = useState(true)
+  const [assumptionsOpen, setAssumptionsOpen] = useState(true)
+  const resultRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (!output) return
+    const heading = resultRef.current?.querySelector('h2')
+    if (heading) {
+      heading.tabIndex = -1
+      heading.focus()
+      heading.scrollIntoView({ block: 'start' })
+    }
+  }, [output])
+  const canAddCurrent = output?.kind === 'scenario' || output?.kind === 'paired'
+  const showComparison = canAddCurrent || scenarios.length > 0
   const selectedGroup = groups.find((group) => group.label === category)
   const formProps = {
     onCalculated: (next: CalculatorOutput) => {
@@ -71,8 +85,13 @@ export function CalculatorsPage() {
       setError(null)
       setCompared(null)
       setCompareError(null)
+      setAssumptionsOpen(false)
+      setChooserOpen(false)
     },
-    onError: setError,
+    onError: (message: string | null) => {
+      setError(message)
+      if (message) setAssumptionsOpen(true)
+    },
     onInputChanged: () => {
       if (output) setOutdated(true)
       setCompared(null)
@@ -80,6 +99,8 @@ export function CalculatorsPage() {
   }
 
   const changeKind = (selected: CalculatorKind | null) => {
+    setAssumptionsOpen(true)
+    if (selected) setChooserOpen(false)
     if (selected === kind) return
     setKind(selected)
     setOutput(null)
@@ -158,55 +179,86 @@ export function CalculatorsPage() {
         title="Calculators"
         description="Private, offline what-if illustrations using entered terms, scheme rates and market assumptions."
       />
-      <section className="card card-body calculator-picker">
-        <h2>Choose a category</h2>
-        <div
-          role="group"
-          aria-label="Calculator categories"
-          className="calculator-choices calculator-categories"
-        >
-          {groups.map((group) => (
-            <button
-              key={group.label}
-              type="button"
-              className="button button-secondary"
-              aria-pressed={category === group.label}
-              onClick={() => changeCategory(group.label)}
-            >
-              {group.label}
-            </button>
-          ))}
-        </div>
-      </section>
-      {selectedGroup ? (
-        <section className="card card-body calculator-picker">
-          <h2>Choose a calculator</h2>
-          <div
-            role="group"
-            aria-label="Available calculators"
-            className="calculator-choices"
-          >
-            {selectedGroup.kinds.map((item) => (
-              <button
-                key={item}
-                type="button"
-                className="button button-secondary"
-                aria-pressed={kind === item}
-                onClick={() => changeKind(item)}
-              >
-                {calculatorNames[item]}
-              </button>
-            ))}
-          </div>
-        </section>
-      ) : null}
       {kind ? (
-        isNextCalculatorKind(kind) ? (
-          <NextCalculatorForm key={kind} kind={kind} {...formProps} />
-        ) : (
-          <CalculatorForm key={kind} kind={kind} {...formProps} />
-        )
+        <div className="calculator-current">
+          <strong>{calculatorNames[kind]}</strong>
+          <button
+            type="button"
+            className="button button-secondary"
+            aria-expanded={chooserOpen}
+            aria-controls="calculator-chooser"
+            onClick={() => setChooserOpen(!chooserOpen)}
+          >
+            Change calculator
+          </button>
+        </div>
       ) : null}
+      <div id="calculator-chooser" hidden={!chooserOpen}>
+        <div className="stack">
+          <section className="card card-body calculator-picker">
+            <h2>Choose a category</h2>
+            <div
+              role="group"
+              aria-label="Calculator categories"
+              className="calculator-choices calculator-categories"
+            >
+              {groups.map((group) => (
+                <button
+                  key={group.label}
+                  type="button"
+                  className="button button-secondary"
+                  aria-pressed={category === group.label}
+                  onClick={() => changeCategory(group.label)}
+                >
+                  {group.label}
+                </button>
+              ))}
+            </div>
+          </section>
+          {selectedGroup ? (
+            <section className="card card-body calculator-picker">
+              <h2>Choose a calculator</h2>
+              <div
+                role="group"
+                aria-label="Available calculators"
+                className="calculator-choices"
+              >
+                {selectedGroup.kinds.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className="button button-secondary"
+                    aria-pressed={kind === item}
+                    onClick={() => changeKind(item)}
+                  >
+                    {calculatorNames[item]}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </div>
+      {kind && output ? (
+        <button
+          type="button"
+          className="button button-secondary"
+          aria-expanded={assumptionsOpen}
+          aria-controls="calculator-assumptions"
+          onClick={() => setAssumptionsOpen(!assumptionsOpen)}
+        >
+          {assumptionsOpen ? 'Hide assumptions' : 'Edit assumptions'}
+        </button>
+      ) : null}
+      <div id="calculator-assumptions" hidden={!assumptionsOpen}>
+        {kind ? (
+          isNextCalculatorKind(kind) ? (
+            <NextCalculatorForm key={kind} kind={kind} {...formProps} />
+          ) : (
+            <CalculatorForm key={kind} kind={kind} {...formProps} />
+          )
+        ) : null}
+      </div>
       {error ? (
         <div className="notice notice-error" role="alert">
           {error}
@@ -220,12 +272,15 @@ export function CalculatorsPage() {
               Recalculate before comparing or saving a scenario.
             </p>
           ) : null}
-          <div aria-label={outdated ? 'Outdated illustration' : 'Current illustration'}>
+          <div
+            ref={resultRef}
+            aria-label={outdated ? 'Outdated illustration' : 'Current illustration'}
+          >
             <CalculatorResult output={output} />
           </div>
         </>
       ) : null}
-      {kind ? (
+      {showComparison ? (
         <section
           className="card card-body calculator-compare"
           aria-label="Scenario comparison"
@@ -247,20 +302,23 @@ export function CalculatorsPage() {
               />
             </div>
           ) : null}
-          <button
-            type="button"
-            className="button button-secondary"
-            disabled={
-              !output ||
-              (output.kind !== 'scenario' && output.kind !== 'paired') ||
-              outdated ||
-              scenarios.length + (output?.kind === 'paired' ? output.results.length : 1) >
-                3
-            }
-            onClick={addScenario}
-          >
-            Add scenario
-          </button>
+          {canAddCurrent ? (
+            <button
+              type="button"
+              className="button button-secondary"
+              disabled={
+                !output ||
+                (output.kind !== 'scenario' && output.kind !== 'paired') ||
+                outdated ||
+                scenarios.length +
+                  (output?.kind === 'paired' ? output.results.length : 1) >
+                  3
+              }
+              onClick={addScenario}
+            >
+              Add scenario
+            </button>
+          ) : null}
           {scenarios.length ? (
             <ul className="calculator-saved">
               {scenarios.map((scenario) => (

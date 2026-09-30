@@ -12,6 +12,7 @@ import type { Transaction } from '../../domain/types'
 import { Dialog } from '../../ui/Dialog'
 import { Icon } from '../../ui/Icon'
 import { useToast } from '../../ui/Toast'
+import { ScrollableTable } from '../../ui/ScrollableTable'
 
 function findHeader(headers: string[], candidates: string[]): string {
   return (
@@ -252,7 +253,7 @@ export function CsvImportDialog({ onClose }: { onClose: () => void }) {
                 are not imported.
               </p>
             </div>
-            <div className="table-wrap">
+            <ScrollableTable label="Transaction import preview">
               <table className="data-table">
                 <thead>
                   <tr>
@@ -288,7 +289,7 @@ export function CsvImportDialog({ onClose }: { onClose: () => void }) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollableTable>
             {preview.length > 10 ? (
               <p className="field-hint">
                 Showing 10 of {preview.length} rows. All rows are validated before import.
