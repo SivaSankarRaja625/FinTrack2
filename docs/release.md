@@ -92,6 +92,8 @@ was distributed, check its package ID, signing certificate and version code
 before issuing the first release: a lower or mismatched APK cannot update it.
 Signed local builds must set both `FINTRACK_VERSION_CODE` and
 `FINTRACK_VERSION_NAME`; unsigned inspection builds may use defaults.
+Unsigned build names and exported-backup app-version metadata follow
+`package.json`, so the declared release version is not duplicated in those paths.
 
 The workflow verifies package ID `com.fintrack.app`, version, absence of the
 debuggable flag, exactly one signer, the pinned certificate, and offline

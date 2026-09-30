@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { gzipSync } from 'fflate'
+import { readFileSync } from 'node:fs'
 
 import {
   account,
@@ -20,6 +21,18 @@ import {
 import { derivePinKey, encryptBytes, testKdfParameters } from './crypto'
 
 describe('complete encrypted backup', () => {
+  it('labels newly exported archives with the package release version', async () => {
+    const packageInfo = JSON.parse(
+      readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+    ) as { version: string }
+    const bytes = await createCompleteBackup(
+      { dataSchemaVersion: 3, records: financeData(), attachments: [] },
+      'backup-pin',
+      { kdf: testKdfParameters },
+    )
+    const envelope = JSON.parse(new TextDecoder().decode(bytes)) as { appVersion: string }
+    expect(envelope.appVersion).toBe(packageInfo.version)
+  })
   const metadata = {
     id: 'attachment-1',
     ownerType: 'insurance' as const,

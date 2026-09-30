@@ -1,4 +1,5 @@
 import { gunzipSync, gzipSync } from 'fflate'
+import { version as packageVersion } from '../../package.json'
 
 import { validateFinanceData } from '../domain/schemas'
 import type { AttachmentMeta, FinanceData, UserProfile } from '../domain/types'
@@ -80,7 +81,7 @@ export async function createCompleteBackup(
     magic: BACKUP_MAGIC,
     formatVersion: BACKUP_FORMAT_VERSION,
     createdAt,
-    appVersion: options?.appVersion ?? '0.1.0',
+    appVersion: options?.appVersion ?? packageVersion,
     salt: bytesToBase64(salt),
     kdf,
     compressed: 'gzip',

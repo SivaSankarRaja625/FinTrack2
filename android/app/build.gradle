@@ -2,7 +2,8 @@ apply plugin: 'com.android.application'
 
 def releaseKeystorePath = System.getenv("FINTRACK_KEYSTORE_FILE")
 def releaseVersionCode = (System.getenv("FINTRACK_VERSION_CODE") ?: "1") as Integer
-def releaseVersionName = System.getenv("FINTRACK_VERSION_NAME") ?: "0.1.0"
+def packageVersion = new groovy.json.JsonSlurper().parse(file('../../package.json')).version as String
+def releaseVersionName = System.getenv("FINTRACK_VERSION_NAME") ?: packageVersion
 def releaseSigningRequested = [
     "FINTRACK_KEYSTORE_FILE",
     "FINTRACK_KEYSTORE_PASSWORD",
