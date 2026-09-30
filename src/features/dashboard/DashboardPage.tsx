@@ -11,6 +11,8 @@ import {
 } from '../../domain/calculations'
 import { currentMonthRange, todayIso } from '../../domain/dates'
 import { formatMoney, percentageOf } from '../../domain/money'
+import { resolveGoalFunding } from '../../domain/goals'
+import { depositReminders } from '../../domain/reminders'
 import { EmptyState, Metric, PageHeader } from '../../ui/Page'
 import { TransactionDialog } from '../transactions/TransactionDialog'
 
@@ -38,7 +40,13 @@ export function DashboardPage() {
   const horizon = format(addDays(new Date(), 30), 'yyyy-MM-dd')
   const upcoming: UpcomingItem[] = [
     ...data.recurringRules
-      .filter((rule) => rule.active && rule.nextDate >= today && rule.nextDate <= horizon)
+      .filter(
+        (rule) =>
+          rule.active &&
+          !rule.obligation &&
+          rule.nextDate >= today &&
+          rule.nextDate <= horizon,
+      )
       .map((rule) => ({
         id: `rule-${rule.id}`,
         date: rule.nextDate,
@@ -62,6 +70,7 @@ export function DashboardPage() {
       .filter(
         (policy) =>
           policy.active &&
+          policy.coverage?.premiumPaidForDate !== policy.nextPremiumDate &&
           policy.nextPremiumDate >= today &&
           policy.nextPremiumDate <= horizon,
       )
@@ -72,6 +81,17 @@ export function DashboardPage() {
         detail: formatMoney(policy.premiumPaise),
         route: '/insurance',
       })),
+    ...(data.settings[0]
+      ? depositReminders(data, data.settings[0])
+          .filter((item) => item.date >= today && item.date <= horizon)
+          .map((item) => ({
+            id: item.key,
+            date: item.date,
+            name: item.title,
+            detail: item.detail,
+            route: item.route,
+          }))
+      : []),
   ].sort((left, right) => left.date.localeCompare(right.date))
   const recentTransactions = [...data.transactions]
     .sort(
@@ -82,7 +102,7 @@ export function DashboardPage() {
     .slice(0, 6)
   const categoryById = new Map(data.categories.map((item) => [item.id, item.name]))
   const accountBalances = calculateAccountBalances(data.accounts, data.transactions)
-  const activeGoals = data.goals.filter((goal) => !goal.archived).slice(0, 4)
+  const activeGoals = resolveGoalFunding(data.goals, accountBalances).slice(0, 4)
 
   return (
     <div className="page home-page">
@@ -216,7 +236,9 @@ export function DashboardPage() {
                         <div className="progress-track">
                           <span
                             className={status.remainingPaise < 0 ? 'progress-danger' : ''}
-                            style={{ width: `${Math.min(100, status.usedPercent)}%` }}
+                            style={{
+                              width: `${Math.max(0, Math.min(100, status.usedPercent))}%`,
+                            }}
                           />
                         </div>
                       </div>
@@ -238,15 +260,15 @@ export function DashboardPage() {
                 </header>
                 <div className="budget-overview">
                   {activeGoals.map((goal) => {
-                    const currentPaise = goal.linkedAccountId
-                      ? Math.max(0, accountBalances.get(goal.linkedAccountId) ?? 0)
-                      : goal.currentPaise
+                    const currentPaise = goal.currentPaise
                     return (
                       <div key={goal.id} className="allocation-row">
                         <div className="cluster cluster-between">
                           <span>{goal.name}</span>
                           <strong>
-                            {percentageOf(currentPaise, goal.targetPaise).toFixed(0)}%
+                            {goal.fundingWarning
+                              ? 'Review funding'
+                              : `${percentageOf(currentPaise, goal.targetPaise).toFixed(0)}%`}
                           </strong>
                         </div>
                         <div className="progress-track">

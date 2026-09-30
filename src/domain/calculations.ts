@@ -3,6 +3,8 @@ import { addMonths, format, parseISO, subMonths } from 'date-fns'
 
 import { addFrequency, currentMonthRange, isDateInRange, monthsUntil } from './dates'
 import { multiplyMoney, percentageOf, sumPaise } from './money'
+import { expenseAllocations, expenseImpact } from './expense-impact'
+import { forecastReviews } from './forecast-review'
 import type {
   Account,
   Asset,
@@ -11,6 +13,7 @@ import type {
   DateRange,
   Goal,
   InvestmentHolding,
+  InsurancePolicy,
   Loan,
   NetWorthSnapshot,
   Paise,
@@ -67,6 +70,7 @@ export interface CashFlowForecastEvent {
   amountPaise: Paise
   projectedBalancePaise: Paise
   sourceRuleId: string
+  overdueDate?: string | undefined
 }
 
 export function calculateAccountBalances(
@@ -120,21 +124,14 @@ export function calculateMonthlySummary(
       incomePaise += transaction.amountPaise
       continue
     }
-    if (transaction.kind !== 'expense') continue
-
-    expensePaise += transaction.amountPaise
-    if (transaction.splits.length > 0) {
-      essentialExpensePaise += transaction.splits.reduce((sum, split) => {
-        return categoryMap.get(split.categoryId)?.essential
+    expensePaise += expenseImpact(transaction)
+    essentialExpensePaise += expenseAllocations(transaction).reduce(
+      (sum, split) =>
+        split.categoryId && categoryMap.get(split.categoryId)?.essential
           ? sum + split.amountPaise
-          : sum
-      }, 0)
-    } else if (
-      transaction.categoryId &&
-      categoryMap.get(transaction.categoryId)?.essential
-    ) {
-      essentialExpensePaise += transaction.amountPaise
-    }
+          : sum,
+      0,
+    )
   }
 
   return {
@@ -156,23 +153,15 @@ export function calculateBudgetStatuses(
     .map((budget) => {
       const spendInRange = (targetRange: DateRange) =>
         transactions.reduce((sum, transaction) => {
-          if (
-            transaction.kind !== 'expense' ||
-            !isDateInRange(transaction.date, targetRange)
-          ) {
+          if (!isDateInRange(transaction.date, targetRange)) {
             return sum
           }
-          if (transaction.splits.length > 0) {
-            return (
-              sum +
-              transaction.splits
-                .filter((split) => split.categoryId === budget.categoryId)
-                .reduce((splitSum, split) => splitSum + split.amountPaise, 0)
-            )
-          }
-          return transaction.categoryId === budget.categoryId
-            ? sum + transaction.amountPaise
-            : sum
+          return (
+            sum +
+            expenseAllocations(transaction)
+              .filter((split) => split.categoryId === budget.categoryId)
+              .reduce((splitSum, split) => splitSum + split.amountPaise, 0)
+          )
         }, 0)
       const spentPaise = spendInRange(range)
       const previousStart = subMonths(parseISO(range.start), 1)
@@ -288,6 +277,18 @@ export function calculateLoanSchedule(loan: Loan): LoanScheduleRow[] {
       : calculateEmiPaise(balance, loan.annualInterestRateBps, loan.termMonths)
   const rows: LoanScheduleRow[] = []
   let date = parseISO(loan.nextPaymentDate)
+  const currentParts = loan.payments.filter(
+    (payment) => payment.occurrenceDate === loan.nextPaymentDate,
+  )
+  const principalAlreadyPaid = sumPaise(
+    currentParts.map((payment) => payment.principalPaise + payment.prepaymentPaise),
+  )
+  const interestAlreadyPaid = sumPaise(
+    currentParts.map((payment) => payment.interestPaise),
+  )
+  const regularAlreadyPaid = sumPaise(
+    currentParts.map((payment) => payment.principalPaise + payment.interestPaise),
+  )
 
   for (let month = 1; month <= loan.termMonths && balance > 0; month += 1) {
     const openingPaise = balance
@@ -298,17 +299,24 @@ export function calculateLoanSchedule(loan: Loan): LoanScheduleRow[] {
     const rowMonthlyRate = new Decimal(applicableRate ?? loan.annualInterestRateBps)
       .div(10_000)
       .div(12)
-    const interestPaise =
+    const grossInterest =
       loan.interestType === 'flat'
         ? new Decimal(loan.principalPaise)
             .mul(rowMonthlyRate)
             .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
             .toNumber()
-        : new Decimal(balance)
+        : new Decimal(balance + (month === 1 ? principalAlreadyPaid : 0))
             .mul(rowMonthlyRate)
             .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
             .toNumber()
-    const paymentPaise = Math.min(balance + interestPaise, scheduledPayment)
+    const interestPaise = Math.max(
+      0,
+      grossInterest - (month === 1 ? interestAlreadyPaid : 0),
+    )
+    const paymentPaise = Math.min(
+      balance + interestPaise,
+      Math.max(0, scheduledPayment - (month === 1 ? regularAlreadyPaid : 0)),
+    )
     const principalPaise = Math.max(0, paymentPaise - interestPaise)
     balance = Math.max(0, balance - principalPaise)
 
@@ -363,12 +371,16 @@ export function calculateCashFlowForecast(input: {
   accounts: readonly Account[]
   transactions: readonly Transaction[]
   recurringRules: readonly RecurringRule[]
+  loans?: readonly Loan[]
+  insurancePolicies?: readonly InsurancePolicy[]
+  assets?: readonly Asset[]
   startDate: string
   endDate: string
 }): {
   openingBalancePaise: Paise
   endingBalancePaise: Paise
   events: CashFlowForecastEvent[]
+  reviews: ReturnType<typeof forecastReviews>
 } {
   const balances = calculateAccountBalances(input.accounts, input.transactions)
   const liquidAccountIds = new Set(
@@ -389,11 +401,31 @@ export function calculateCashFlowForecast(input: {
     name: string
     amountPaise: Paise
     sourceRuleId: string
+    overdueDate?: string | undefined
   }> = []
+  const addOccurrence = (
+    id: string,
+    due: string,
+    name: string,
+    amountPaise: Paise,
+    sourceRuleId: string,
+  ) => {
+    if (due > input.endDate) return
+    occurrences.push({
+      id,
+      date: due < input.startDate ? input.startDate : due,
+      name,
+      amountPaise,
+      sourceRuleId,
+      ...(due < input.startDate ? { overdueDate: due } : {}),
+    })
+  }
 
-  for (const rule of input.recurringRules.filter((item) => item.active)) {
+  for (const rule of input.recurringRules.filter(
+    (item) => item.active && !item.obligation,
+  )) {
     let date = rule.nextDate
-    while (date < input.startDate) date = addFrequency(date, rule.frequency)
+    let shownOverdue = false
     while (date <= input.endDate && (!rule.endDate || date <= rule.endDate)) {
       let amountPaise = 0
       if (rule.kind === 'income' && liquidAccountIds.has(rule.accountId)) {
@@ -408,22 +440,90 @@ export function calculateCashFlowForecast(input: {
         if (fromLiquid && !toLiquid) amountPaise = -rule.amountPaise
         if (!fromLiquid && toLiquid) amountPaise = rule.amountPaise
       }
-      if (amountPaise !== 0) {
-        occurrences.push({
-          id: `${rule.id}:${date}`,
-          date,
-          name: rule.name,
-          amountPaise,
-          sourceRuleId: rule.id,
-        })
+      if (amountPaise !== 0 && (date >= input.startDate || !shownOverdue)) {
+        addOccurrence(`${rule.id}:${date}`, date, rule.name, amountPaise, rule.id)
+        if (date < input.startDate) shownOverdue = true
       }
       date = addFrequency(date, rule.frequency)
+    }
+  }
+  for (const loan of input.loans ?? []) {
+    if (!loan.active) continue
+    let shownOverdue = false
+    for (const payment of calculateLoanSchedule({ ...loan, prepaymentPaise: 0 })) {
+      if (payment.date > input.endDate) break
+      if (payment.date < input.startDate && shownOverdue) continue
+      addOccurrence(
+        `loan:${loan.id}:${payment.date}`,
+        payment.date,
+        `${loan.name} EMI`,
+        -payment.paymentPaise,
+        `loan:${loan.id}`,
+      )
+      if (payment.date < input.startDate) shownOverdue = true
+    }
+  }
+  for (const policy of input.insurancePolicies ?? []) {
+    if (!policy.active || policy.premiumPaise === 0) continue
+    let date = policy.nextPremiumDate
+    let shownOverdue = false
+    while (date <= input.endDate && (!policy.endDate || date <= policy.endDate)) {
+      if (
+        policy.coverage?.premiumPaidForDate !== date &&
+        (date >= input.startDate || !shownOverdue)
+      ) {
+        addOccurrence(
+          `policy:${policy.id}:${date}`,
+          date,
+          `${policy.policyName} premium`,
+          -policy.premiumPaise,
+          `policy:${policy.id}`,
+        )
+        if (date < input.startDate) shownOverdue = true
+      }
+      date = addFrequency(date, policy.premiumFrequency)
+    }
+  }
+  for (const asset of input.assets ?? []) {
+    const terms = asset.deposit
+    if (!terms || terms.status !== 'active' || !liquidAccountIds.has(terms.cashAccountId))
+      continue
+    if (terms.maturityInstruction === 'payout') {
+      addOccurrence(
+        `deposit:${asset.id}:maturity`,
+        terms.maturityDate,
+        `${asset.name} maturity`,
+        terms.maturityAmountPaise,
+        `deposit:${asset.id}`,
+      )
+    }
+    if (terms.interestFrequency !== 'at-maturity' && terms.nextInterestDate) {
+      let date = terms.nextInterestDate
+      let shownOverdue = false
+      while (date <= input.endDate && date <= terms.maturityDate) {
+        if (
+          !terms.paidInterestDates.includes(date) &&
+          (date >= input.startDate || !shownOverdue)
+        ) {
+          addOccurrence(
+            `deposit:${asset.id}:${date}`,
+            date,
+            `${asset.name} interest`,
+            terms.interestPaise,
+            `deposit:${asset.id}`,
+          )
+          if (date < input.startDate) shownOverdue = true
+        }
+        date = addFrequency(date, terms.interestFrequency)
+      }
     }
   }
 
   occurrences.sort(
     (left, right) =>
-      left.date.localeCompare(right.date) || left.name.localeCompare(right.name),
+      left.date.localeCompare(right.date) ||
+      left.amountPaise - right.amountPaise ||
+      left.name.localeCompare(right.name),
   )
   let running = openingBalancePaise
   const events = occurrences.map((event) => {
@@ -434,6 +534,12 @@ export function calculateCashFlowForecast(input: {
     openingBalancePaise,
     endingBalancePaise: running,
     events,
+    reviews: forecastReviews(
+      input.recurringRules,
+      input.transactions,
+      input.loans,
+      input.insurancePolicies,
+    ),
   }
 }
 

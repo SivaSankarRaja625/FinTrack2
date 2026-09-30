@@ -194,6 +194,9 @@ test('amount-first entry keeps adjustment signs and validates transfer destinati
   ).toContainText('₹950')
   await page.getByRole('button', { name: 'Add transaction', exact: true }).first().click()
   await dialog.getByLabel('Type', { exact: true }).selectOption('transfer')
+  await expect(
+    dialog.getByLabel('From account', { exact: true }).locator('option:checked'),
+  ).toHaveText('Adjustment account')
   await dialog.getByLabel('Amount', { exact: true }).fill('25')
   await dialog.getByLabel('Description', { exact: true }).fill('Move cash')
   await dialog.getByRole('button', { name: 'Add transaction', exact: true }).click()

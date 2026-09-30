@@ -2,6 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useId, useLayoutEffect, useState } from 'react'
 import { useFieldArray, useForm, useWatch, type FieldPath } from 'react-hook-form'
 import { z } from 'zod'
+import { Link } from 'react-router-dom'
 
 import { useFinance } from '../../app/FinanceContext'
 import { todayIso } from '../../domain/dates'
@@ -86,9 +87,11 @@ type Values = z.infer<typeof schema>
 export function TransactionDialog({
   transaction,
   onClose,
+  onReimburse,
 }: {
   transaction: Transaction | null
   onClose: () => void
+  onReimburse?: (() => void) | undefined
 }) {
   const { data, save } = useFinance()
   const { notify } = useToast()
@@ -163,6 +166,7 @@ export function TransactionDialog({
       setSubmitError(null)
       try {
         const next: Transaction = {
+          ...transaction,
           id: transaction?.id ?? newId(),
           kind: values.kind,
           accountId: values.accountId,
@@ -227,6 +231,44 @@ export function TransactionDialog({
     },
   )
 
+  if (transaction?.financialEventId) {
+    const event = data.financialEvents.find(
+      (item) => item.id === transaction.financialEventId,
+    )
+    const route =
+      event?.before.kind === 'loan'
+        ? '/loans'
+        : event?.before.kind === 'investment'
+          ? '/investments'
+          : event?.before.kind === 'policy'
+            ? '/insurance'
+            : event?.before.kind === 'recurring'
+              ? '/plan'
+              : event?.before.kind === 'asset'
+                ? '/net-worth'
+                : '/transactions'
+    return (
+      <Dialog open title="Linked financial transaction" onClose={onClose}>
+        <p>
+          This cash entry belongs to {event?.sourceName ?? 'a financial event'}. Editing
+          it alone would break the balance reconciliation.
+        </p>
+        <p>
+          Undo it from Activity, or manage the Financial activity section on its source
+          record. Matched bank entries are restored rather than deleted.
+        </p>
+        <Link className="button" to={route} onClick={onClose}>
+          View source record
+        </Link>
+        {transaction.kind === 'expense' && onReimburse ? (
+          <button type="button" className="button button-secondary" onClick={onReimburse}>
+            Record reimbursement
+          </button>
+        ) : null}
+      </Dialog>
+    )
+  }
+
   return (
     <Dialog
       open
@@ -251,6 +293,16 @@ export function TransactionDialog({
           >
             {submitting ? 'Saving…' : transaction ? 'Save changes' : 'Add transaction'}
           </button>
+          {transaction?.kind === 'expense' && onReimburse ? (
+            <button
+              type="button"
+              className="button button-secondary"
+              disabled={submitting}
+              onClick={onReimburse}
+            >
+              Reimburse saved expense
+            </button>
+          ) : null}
         </div>
       }
     >

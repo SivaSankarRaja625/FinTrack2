@@ -10,8 +10,8 @@ import { FinanceRepository } from './repository'
 
 export class UnsupportedDataSchemaError extends Error {}
 
-export function validatedDataSchemaVersion(value: unknown): 1 | 2 {
-  if (value === 1 || value === CURRENT_DATA_SCHEMA_VERSION) return value
+export function validatedDataSchemaVersion(value: unknown): 1 | 2 | 3 {
+  if (value === 1 || value === 2 || value === CURRENT_DATA_SCHEMA_VERSION) return value
   if (Number.isInteger(value) && Number(value) > CURRENT_DATA_SCHEMA_VERSION) {
     throw new UnsupportedDataSchemaError(
       'This workspace requires a newer version of FinTrack. Install the latest APK; your data has not been changed.',
@@ -22,6 +22,11 @@ export function validatedDataSchemaVersion(value: unknown): 1 | 2 {
   )
 }
 
+export function upgradeFinanceData(value: unknown, version: unknown) {
+  validatedDataSchemaVersion(version)
+  return validateFinanceData(value)
+}
+
 export async function migrateUnlockedWorkspace(
   dataKey: CryptoKey,
   db: FinTrackDatabase,
@@ -30,7 +35,10 @@ export async function migrateUnlockedWorkspace(
   const version = validatedDataSchemaVersion(marker?.value)
   if (version === CURRENT_DATA_SCHEMA_VERSION) return
 
-  const records = validateFinanceData(await new FinanceRepository(dataKey, db).loadAll())
+  const records = upgradeFinanceData(
+    await new FinanceRepository(dataKey, db).loadAll(),
+    version,
+  )
   const attachments = await new AttachmentRepository(dataKey, db).listMetadata()
   validateRelations(records, attachments)
 

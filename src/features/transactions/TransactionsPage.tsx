@@ -17,6 +17,8 @@ import { AccountDialog } from './AccountDialog'
 import { CsvImportDialog } from './CsvImportDialog'
 import { TransactionDialog } from './TransactionDialog'
 import { ScrollableTable } from '../../ui/ScrollableTable'
+import { FinancialActionDialog } from '../../ui/FinancialActionDialog'
+import { FinancialEventHistory } from '../../ui/FinancialEventHistory'
 
 type DeleteTarget =
   | { type: 'transaction'; transaction: Transaction }
@@ -30,6 +32,8 @@ export function TransactionsPage() {
     null,
   )
   const [importOpen, setImportOpen] = useState(false)
+  const [reimbursementId, setReimbursementId] = useState<string | null>(null)
+  const [activityExpenseId, setActivityExpenseId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [query, setQuery] = useState('')
@@ -471,6 +475,9 @@ export function TransactionsPage() {
                       <td>{format(new Date(batch.importedAt), 'dd MMM yyyy, HH:mm')}</td>
                       <td>
                         {batch.createdTransactionIds.length} imported
+                        {batch.removedTransactionIds?.length
+                          ? ` remaining · ${batch.removedTransactionIds.length} individually removed`
+                          : ''}
                         {batch.duplicateCount > 0
                           ? ` · ${batch.duplicateCount} skipped`
                           : ''}
@@ -507,10 +514,29 @@ export function TransactionsPage() {
           onClose={() => setAccountDialog(null)}
         />
       ) : null}
+      {activityExpenseId ? (
+        <FinancialEventHistory sourceId={activityExpenseId} sourceKind="expense" />
+      ) : null}
+      {reimbursementId ? (
+        <FinancialActionDialog
+          kind="reimbursement"
+          sourceId={reimbursementId}
+          onClose={() => setReimbursementId(null)}
+        />
+      ) : null}
       {transactionDialog ? (
         <TransactionDialog
           transaction={transactionDialog === 'new' ? null : transactionDialog}
           onClose={() => setTransactionDialog(null)}
+          onReimburse={
+            transactionDialog !== 'new' && transactionDialog.kind === 'expense'
+              ? () => {
+                  setReimbursementId(transactionDialog.id)
+                  setActivityExpenseId(transactionDialog.id)
+                  setTransactionDialog(null)
+                }
+              : undefined
+          }
         />
       ) : null}
       {importOpen ? <CsvImportDialog onClose={() => setImportOpen(false)} /> : null}
@@ -519,14 +545,24 @@ export function TransactionsPage() {
         title={
           deleteTarget?.type === 'import'
             ? 'Roll back this CSV import?'
-            : 'Delete this transaction?'
+            : deleteTarget?.transaction.financialEventId
+              ? 'Undo this linked financial event?'
+              : 'Delete this transaction?'
         }
         description={
           deleteTarget?.type === 'import'
             ? `${deleteTarget.batch.createdTransactionIds.length} imported transactions will be removed.`
-            : `“${deleteTarget?.transaction.description ?? ''}” will be removed from the account balance and reports.`
+            : deleteTarget?.transaction.financialEventId
+              ? 'The source and its linked cash changes will be reversed together. A previously matched bank entry is restored, not deleted.'
+              : `“${deleteTarget?.transaction.description ?? ''}” will be removed from the account balance and reports.`
         }
-        confirmLabel={deleteTarget?.type === 'import' ? 'Roll back import' : 'Delete'}
+        confirmLabel={
+          deleteTarget?.type === 'import'
+            ? 'Roll back import'
+            : deleteTarget?.transaction.financialEventId
+              ? 'Undo event'
+              : 'Delete'
+        }
         busy={deleting}
         onClose={() => setDeleteTarget(null)}
         onConfirm={() => void confirmDelete()}

@@ -14,6 +14,7 @@ import { ConfirmDialog } from '../../ui/Dialog'
 import { Icon } from '../../ui/Icon'
 import { EmptyState, Metric, PageHeader } from '../../ui/Page'
 import { useToast } from '../../ui/Toast'
+import { FinancialEventHistory } from '../../ui/FinancialEventHistory'
 import { AccountDialog } from '../transactions/AccountDialog'
 import { CreditCardSection } from './CreditCardSection'
 import { LoanDialog } from './LoanDialog'
@@ -440,6 +441,9 @@ export function LoansPage() {
         </>
       )}
 
+      {selectedLoan ? (
+        <FinancialEventHistory sourceId={selectedLoan.id} sourceKind="loan" />
+      ) : null}
       {cardDialog ? (
         <AccountDialog
           account={cardDialog === 'new' ? null : cardDialog}

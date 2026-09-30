@@ -1,4 +1,5 @@
 import { isIsoDate } from './dates'
+import { differenceInCalendarDays, parseISO } from 'date-fns'
 import { newId } from './id'
 import { rupeesToPaise } from './money'
 import type {
@@ -26,6 +27,7 @@ export interface CsvPreviewRow {
   transaction: Omit<Transaction, 'createdAt' | 'updatedAt'> | null
   error: string | null
   duplicate: boolean
+  possibleFinancialMatch?: string | undefined
 }
 
 export function parseCsv(text: string): Array<Record<string, string>> {
@@ -106,6 +108,29 @@ export function previewCsvTransactions(input: {
   importBatchId: EntityId
 }): CsvPreviewRow[] {
   const fingerprints = new Set(input.existing.map(transactionFingerprint))
+  const linkedCash = new Map<
+    string,
+    { eventId: string; date: string; signedPaise: number }
+  >()
+  for (const item of input.existing) {
+    const eventId = item.financialOriginId ?? item.financialEventId
+    if (!eventId) continue
+    const signedPaise =
+      item.accountId === input.accountId
+        ? item.kind === 'income' || item.kind === 'adjustment'
+          ? item.amountPaise
+          : -item.amountPaise
+        : item.kind === 'transfer' && item.destinationAccountId === input.accountId
+          ? item.amountPaise
+          : 0
+    if (!signedPaise) continue
+    const key = `${eventId}:${item.date}`
+    linkedCash.set(key, {
+      eventId,
+      date: item.date,
+      signedPaise: signedPaise + (linkedCash.get(key)?.signedPaise ?? 0),
+    })
+  }
   const categoryMap = new Map(
     input.categories.map((category) => [category.name.toLowerCase(), category.id]),
   )
@@ -160,6 +185,12 @@ export function previewCsvTransactions(input: {
       }
       const fingerprint = transactionFingerprint(transaction)
       const duplicate = fingerprints.has(fingerprint)
+      const possibleFinancialMatch = [...linkedCash.values()].find(
+        (item) =>
+          item.signedPaise ===
+            (kind === 'income' ? transaction.amountPaise : -transaction.amountPaise) &&
+          Math.abs(differenceInCalendarDays(parseISO(item.date), parseISO(date))) <= 7,
+      )?.eventId
       fingerprints.add(fingerprint)
       return {
         rowNumber: index + 2,
@@ -167,6 +198,7 @@ export function previewCsvTransactions(input: {
         transaction,
         error: null,
         duplicate,
+        ...(possibleFinancialMatch ? { possibleFinancialMatch } : {}),
       }
     } catch (error) {
       return {

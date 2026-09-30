@@ -10,6 +10,7 @@ import {
 import { indianFinancialYearRange, isDateInRange } from '../../domain/dates'
 import { formatMoney, multiplyMoney } from '../../domain/money'
 import type { DateRange, Transaction } from '../../domain/types'
+import { expenseAllocations, expenseImpact } from '../../domain/expense-impact'
 import { downloadText } from '../../platform/files'
 import { ConfirmDialog } from '../../ui/Dialog'
 import { Icon } from '../../ui/Icon'
@@ -47,19 +48,25 @@ function monthlyCashFlow(
 ) {
   const buckets = new Map<
     string,
-    { income: number; expense: number; transactions: Transaction[] }
+    { income: number; expense: number; refund: number; transactions: Transaction[] }
   >()
   for (const transaction of transactions) {
     if (
       !isDateInRange(transaction.date, range) ||
-      !['income', 'expense'].includes(transaction.kind)
+      (transaction.kind !== 'income' && expenseImpact(transaction) === 0)
     ) {
       continue
     }
     const key = mode === 'month' ? transaction.date : transaction.date.slice(0, 7)
-    const bucket = buckets.get(key) ?? { income: 0, expense: 0, transactions: [] }
+    const bucket = buckets.get(key) ?? {
+      income: 0,
+      expense: 0,
+      refund: 0,
+      transactions: [],
+    }
     if (transaction.kind === 'income') bucket.income += transaction.amountPaise
-    if (transaction.kind === 'expense') bucket.expense += transaction.amountPaise
+    bucket.expense += expenseImpact(transaction)
+    if (transaction.reimbursementOf) bucket.refund += transaction.amountPaise
     bucket.transactions.push(transaction)
     buckets.set(key, bucket)
   }
@@ -107,19 +114,10 @@ export function ReportsPage() {
     : ''
   const categorySpend = (() => {
     const totals = new Map<string, number>()
-    for (const transaction of filteredTransactions.filter(
-      (item) => item.kind === 'expense',
-    )) {
-      if (transaction.splits.length > 0) {
-        for (const split of transaction.splits) {
-          totals.set(
-            split.categoryId,
-            (totals.get(split.categoryId) ?? 0) + split.amountPaise,
-          )
-        }
-      } else {
-        const key = transaction.categoryId ?? 'uncategorised'
-        totals.set(key, (totals.get(key) ?? 0) + transaction.amountPaise)
+    for (const transaction of filteredTransactions) {
+      for (const split of expenseAllocations(transaction)) {
+        const key = split.categoryId ?? 'uncategorised'
+        totals.set(key, (totals.get(key) ?? 0) + split.amountPaise)
       }
     }
     const categoryNames = new Map(
@@ -154,7 +152,7 @@ export function ReportsPage() {
         ['Date', 'Type', 'Account', 'Category', 'Description', 'Amount INR', 'Note'],
         ...filteredTransactions.map((transaction) => [
           transaction.date,
-          transaction.kind,
+          transaction.reimbursementOf ? 'reimbursement' : transaction.kind,
           accountNames.get(transaction.accountId) ?? '',
           categoryNames.get(transaction.categoryId ?? '') ?? '',
           transaction.description,
@@ -265,10 +263,16 @@ export function ReportsPage() {
             <div>
               <h2>Income and expenses</h2>
               <p className="muted">
-                Select an active interval. Transfers and adjustments excluded.
+                Select an active interval. Transfers and capital movements excluded.
               </p>
             </div>
           </header>
+          {flow.some((item) => item.refund > 0) ? (
+            <p className="card-body field-hint">
+              Expense totals are net of reimbursements received this period. Bars separate
+              paid expenses from reimbursements.
+            </p>
+          ) : null}
           <div className="card-body">
             {flow.length > 0 && selected ? (
               <CashFlowChart

@@ -11,6 +11,7 @@ import { ConfirmDialog } from '../../ui/Dialog'
 import { Icon } from '../../ui/Icon'
 import { EmptyState, Metric, PageHeader } from '../../ui/Page'
 import { useToast } from '../../ui/Toast'
+import { FinancialEventHistory } from '../../ui/FinancialEventHistory'
 import { ActivityDialog } from './ActivityDialog'
 import { HoldingDialog } from './HoldingDialog'
 import { InvestmentCsvDialog } from './InvestmentCsvDialog'
@@ -345,6 +346,9 @@ export function InvestmentsPage() {
         </section>
       ) : null}
 
+      {selected ? (
+        <FinancialEventHistory sourceId={selected.id} sourceKind="investment" />
+      ) : null}
       {holdingDialog ? (
         <HoldingDialog
           holding={holdingDialog === 'new' ? null : holdingDialog}

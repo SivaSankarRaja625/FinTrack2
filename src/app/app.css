@@ -109,6 +109,23 @@
   position: relative;
 }
 
+.cash-posting {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.cash-posting legend {
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.cash-posting .field,
+.cash-posting .select {
+  min-width: 0;
+}
+
 .currency-field > span {
   position: absolute;
   z-index: 1;
@@ -2358,6 +2375,19 @@
 
 .cashflow-zero {
   min-height: 0;
+}
+
+.cashflow-refund {
+  background: var(--info);
+}
+
+.cashflow-has-refunds .cashflow-pair {
+  width: 64px;
+}
+
+.cashflow-has-refunds .cashflow-interval {
+  min-width: 80px;
+  flex-basis: 80px;
 }
 
 .cashflow-interval-label {

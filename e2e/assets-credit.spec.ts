@@ -91,6 +91,7 @@ test('loan validation, rate change, and payment recalculate the schedule and deb
   await payment.getByLabel('Principal paid').fill('1000')
   await payment.getByLabel('Interest paid').fill('240')
   await payment.getByLabel('Additional prepayment').fill('500')
+  await payment.getByLabel('Cash entry').selectOption('history')
   await payment.getByRole('button', { name: 'Record payment' }).click()
   await expect(payment).toBeHidden()
   await expect(metric(page, 'Loan outstanding')).toHaveText('₹10,500')
@@ -166,6 +167,7 @@ test('holding edits, prices, buys and sells reconcile portfolio and Reports', as
   })
   await buy.getByLabel('Units').fill('2')
   await buy.getByLabel('Total amount').fill('200')
+  await buy.getByLabel('Cash entry').selectOption('history')
   await buy.getByRole('button', { name: 'Record activity' }).click()
   await expect(buy).toBeHidden()
   await expect(metric(page, 'Portfolio value')).toHaveText('₹1,800')
@@ -178,6 +180,7 @@ test('holding edits, prices, buys and sells reconcile portfolio and Reports', as
   await sell.getByLabel('Activity', { exact: true }).selectOption('sell')
   await sell.getByLabel('Units').fill('13')
   await sell.getByLabel('Total amount').fill('1950')
+  await sell.getByLabel('Cash entry').selectOption('history')
   await sell.getByRole('button', { name: 'Record activity' }).click()
   await expect(sell.getByRole('alert')).toHaveText(
     'Units removed cannot exceed the current units',

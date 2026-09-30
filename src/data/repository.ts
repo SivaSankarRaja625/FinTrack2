@@ -32,6 +32,7 @@ const collections = [
   'goals',
   'importBatches',
   'netWorthSnapshots',
+  'financialEvents',
 ] as const satisfies readonly CollectionName[]
 
 function recordContext(collection: CollectionName, recordId: string): string {
@@ -60,6 +61,62 @@ export class FinanceRepository {
       ;(data[row.collection] as FinanceEntity[]).push(entity)
     }
     return data
+  }
+
+  async mutate(build: (current: FinanceData) => FinanceData): Promise<FinanceData> {
+    const previous = await this.db.records.toArray()
+    const current = emptyFinanceData()
+    const originals = new Map<string, string>()
+    for (const row of previous) {
+      if (!collections.includes(row.collection))
+        throw new Error('Unsupported finance record collection')
+      const entity = await this.decryptRow(row)
+      originals.set(row.key, JSON.stringify(entity))
+      ;(current[row.collection] as FinanceEntity[]).push(entity)
+    }
+    const next = build(current)
+    const writes: EncryptedRecordRow[] = []
+    const retained = new Set<string>()
+    for (const collection of collections) {
+      for (const entity of next[collection]) {
+        const key = recordKey(collection, entity.id)
+        if (retained.has(key)) throw new Error('Duplicate finance record identifier')
+        retained.add(key)
+        if (originals.get(key) !== JSON.stringify(entity)) {
+          writes.push(await this.encryptEntity(collection, entity))
+        }
+      }
+    }
+    const previousVersions = new Map(
+      previous.map((row) => [row.key, `${row.iv}:${row.ciphertext}`]),
+    )
+    await this.db.transaction('rw', this.db.records, this.db.metadata, async () => {
+      const schema = (await this.db.metadata.get(metadataKeys.dataSchema))?.value
+      if (schema !== 1 && schema !== 2 && schema !== CURRENT_DATA_SCHEMA_VERSION) {
+        throw new Error(
+          'This workspace schema changed or requires a newer version. Reopen the application before writing.',
+        )
+      }
+      const latest = await this.db.records.toArray()
+      if (
+        latest.length !== previous.length ||
+        latest.some(
+          (row) => previousVersions.get(row.key) !== `${row.iv}:${row.ciphertext}`,
+        )
+      )
+        throw new Error(
+          'Finance records changed during this action. Refresh and review before retrying.',
+        )
+      await this.db.records.bulkDelete(
+        previous.filter((row) => !retained.has(row.key)).map((row) => row.key),
+      )
+      await this.db.records.bulkPut(writes)
+      await this.db.metadata.put({
+        key: metadataKeys.dataSchema,
+        value: CURRENT_DATA_SCHEMA_VERSION,
+      })
+    })
+    return next
   }
 
   async list<K extends CollectionName>(collection: K): Promise<FinanceData[K]> {

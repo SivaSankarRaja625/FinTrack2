@@ -99,3 +99,28 @@ calling production calculators for expected values. Cover edits, transfers,
 missed instalments, charges, rate changes, filtered reports, and restored balances;
 finding a currency string somewhere on the page is not sufficient verification.
 Layout and accessibility assertions supplement these financial checks.
+
+## Connected financial records
+
+- Current loan payments, premiums and investment activity explicitly create or
+  match a cash entry. Historical-only mode is an explicit warning-bearing choice,
+  not a silent default. A matched statement entry is not posted a second time.
+- Principal plus loan prepayment cannot exceed live outstanding. Goals may share
+  an account through explicit fixed allocations and at most one goal following
+  the unallocated remainder. New allocations cannot exceed available cash; if
+  cash later falls, priority then creation order determines funded amounts and
+  visible shortfalls. Legacy duplicate full-balance links require review.
+- Post or match scheduled occurrences in Plan. Suspected duplicate schedules or
+  already-posted cash require review before displaying a reliable forecast.
+  Loan EMIs, premiums and confirmed deposit payouts are included; hypothetical
+  loan prepayments and unconfirmed renewals are not cash inflows.
+- Receivable settlement reduces the asset while crediting cash. Reimbursements
+  offset expense in the receipt period, including original split categories,
+  without rewriting old periods or treating refunds as earned income.
+- Deposit terms are user-confirmed amounts and dates, not assumed product rates.
+  Maturity clears the carrying value; principal is a capital movement and cash
+  interest is income. Renewal or unknown instructions do not forecast principal payout.
+- Linked cash cannot be edited separately. Undo is conditional on unchanged
+  financial state and restores original matched entries. Finalizing links keeps
+  real cash history while permitting source corrections; source deletion never
+  silently removes bank transactions. Imports flag likely matches to linked cash.

@@ -101,6 +101,12 @@ test('paying a premium does not silently confirm an insurance renewal', async ({
 
   await openSection(page, 'Insurance')
   await page.getByRole('button', { name: 'Record premium payment' }).click()
+  const premium = page.getByRole('dialog', { name: 'Pay premium · Health plan' })
+  await premium.getByLabel('Cash entry').selectOption('history')
+  await premium
+    .getByRole('button', { name: 'Record premium payment', exact: true })
+    .click()
+  await expect(premium).toBeHidden()
   await openSection(page, 'Alerts')
   await expect(page.getByText('Health plan renewal needs confirmation')).toBeVisible()
   await expect(page.getByText('Health plan premium and renewal need review')).toHaveCount(

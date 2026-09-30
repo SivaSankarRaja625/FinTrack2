@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { account, financeData, timestamp, transaction } from '../test/fixtures'
 import type { ImportBatch } from '../domain/types'
 import { createSecurityConfig, testKdfParameters } from './crypto'
-import { FinTrackDatabase } from './database'
+import { FinTrackDatabase, metadataKeys } from './database'
 import { FinanceRepository } from './repository'
 
 let db: FinTrackDatabase | null = null
@@ -17,6 +17,72 @@ afterEach(async () => {
 })
 
 describe('encrypted repository', () => {
+  it('rolls back deletions if a related encrypted write fails', async () => {
+    db = new FinTrackDatabase(`repository-test-${crypto.randomUUID()}`)
+    const { dataKey } = await createSecurityConfig('secure-pin', testKdfParameters)
+    const repository = new FinanceRepository(dataKey, db)
+    await repository.replaceAll(
+      financeData({ accounts: [account()], transactions: [transaction()] }),
+    )
+    const before = await db.records.toArray()
+    const write = vi
+      .spyOn(db.records, 'bulkPut')
+      .mockRejectedValueOnce(new Error('Storage write failed'))
+    try {
+      await expect(
+        repository.mutate((data) => ({
+          ...data,
+          accounts: [{ ...data.accounts[0]!, name: 'Must not survive' }],
+          transactions: [],
+        })),
+      ).rejects.toThrow('Storage write failed')
+    } finally {
+      write.mockRestore()
+    }
+    expect(await db.records.toArray()).toEqual(before)
+  })
+  it('commits related records together and leaves no partial mutation on failure', async () => {
+    db = new FinTrackDatabase(`repository-test-${crypto.randomUUID()}`)
+    const { dataKey } = await createSecurityConfig('secure-pin', testKdfParameters)
+    const repository = new FinanceRepository(dataKey, db)
+    await repository.replaceAll(financeData({ accounts: [account()] }))
+    await db.metadata.put({ key: metadataKeys.dataSchema, value: 2 })
+    await expect(
+      repository.mutate(() => {
+        throw new Error('Invalid payment')
+      }),
+    ).rejects.toThrow('Invalid payment')
+    expect((await repository.loadAll()).transactions).toHaveLength(0)
+    await repository.mutate((data) => ({
+      ...data,
+      accounts: [{ ...data.accounts[0]!, name: 'Changed together' }],
+      transactions: [transaction()],
+    }))
+    const loaded = await repository.loadAll()
+    expect(loaded.accounts[0]?.name).toBe('Changed together')
+    expect(loaded.transactions[0]?.amountPaise).toBe(10_000)
+    expect((await db.metadata.get(metadataKeys.dataSchema))?.value).toBe(3)
+  })
+
+  it('rejects conflicting concurrent mutations instead of overwriting a newer balance', async () => {
+    db = new FinTrackDatabase(`repository-test-${crypto.randomUUID()}`)
+    const { dataKey } = await createSecurityConfig('secure-pin', testKdfParameters)
+    const repository = new FinanceRepository(dataKey, db)
+    await repository.replaceAll(financeData({ accounts: [account()] }))
+    const change = (data: ReturnType<typeof financeData>) => ({
+      ...data,
+      accounts: data.accounts.map((item) => ({
+        ...item,
+        openingBalancePaise: item.openingBalancePaise + 100,
+      })),
+    })
+    const results = await Promise.allSettled([
+      repository.mutate(change),
+      repository.mutate(change),
+    ])
+    expect(results.filter((item) => item.status === 'fulfilled')).toHaveLength(1)
+    expect((await repository.loadAll()).accounts[0]?.openingBalancePaise).toBe(100_100)
+  })
   it('stores only ciphertext and restores typed collections', async () => {
     db = new FinTrackDatabase(`repository-test-${crypto.randomUUID()}`)
     const { dataKey } = await createSecurityConfig('secure-pin', testKdfParameters)

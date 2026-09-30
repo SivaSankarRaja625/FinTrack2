@@ -17,6 +17,12 @@ creation timestamp. The format version remains 1. Data-schema-v1 backups remain
 readable, but their public timestamp cannot be trusted to prove freshness. Older
 builds must reject newer data schemas rather than silently discard new fields.
 
+Data schema v3 adds linked financial-event history, confirmed deposit schedules,
+reimbursement references and recurring-obligation links. V1/v2 archives and
+Android snapshots remain readable through the additive upgrade path; old records
+are not backfilled with invented bank transactions. New exports identify schema
+v3 so older builds cannot silently strip these relationships.
+
 Import authenticates before parsing, validates every record and relation, stages
 migrations, and replaces live data only after the complete payload is valid. A
 manually exported file is not considered saved just because encryption or a share

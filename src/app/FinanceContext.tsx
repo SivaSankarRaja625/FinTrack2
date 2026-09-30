@@ -21,7 +21,15 @@ import {
 import { validateRelations } from '../data/invariants'
 import { createSystemSnapshot } from '../data/system-snapshot'
 import type { Workspace } from '../data/workspace'
+import { financeCollections } from '../data/repository'
 import { evaluateAlerts } from '../domain/alerts'
+import {
+  applyFinancialCommand,
+  finalizeFinancialEvents,
+  undoFinancialEvent,
+  type FinancialCommand,
+} from '../domain/financial-events'
+import { guardDirectSave, prepareSourceRemoval } from '../domain/financial-guards'
 import { emptyFinanceData } from '../domain/defaults'
 import { todayIso } from '../domain/dates'
 import { entityTimestamps, newId, nowIso } from '../domain/id'
@@ -32,6 +40,7 @@ import type {
   CollectionName,
   FinanceAlert,
   FinanceData,
+  FinancialSourceState,
   ImportBatch,
   Transaction,
 } from '../domain/types'
@@ -54,6 +63,12 @@ export interface NotificationStatus {
 }
 
 interface FinanceContextValue {
+  recordFinancialEvent: (command: FinancialCommand) => Promise<void>
+  undoFinancialEvent: (eventId: string) => Promise<void>
+  finalizeFinancialEvents: (
+    kind: FinancialSourceState['kind'],
+    sourceId: string,
+  ) => Promise<void>
   data: FinanceData
   alerts: FinanceAlert[]
   attachmentMetadata: AttachmentMeta[]
@@ -142,6 +157,7 @@ export function FinanceProvider({
 }) {
   const { setAutoLockMinutes } = useSecurity()
   const [data, setData] = useState<FinanceData>(emptyFinanceData)
+  const mutationQueue = useRef<Promise<void>>(Promise.resolve())
   const [attachmentMetadata, setAttachmentMetadata] = useState<AttachmentMeta[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -360,43 +376,99 @@ export function FinanceProvider({
     }
   }, [syncNotifications])
 
-  const save = useCallback(
-    async <K extends CollectionName>(collection: K, entity: FinanceData[K][number]) => {
-      await workspace.records.put(collection, entity)
-      const next = replaceEntity(dataRef.current, collection, entity)
-      dataRef.current = next
-      setData(next)
-      scheduleSystemSnapshot()
+  const mutate = useCallback(
+    (build: (current: FinanceData) => FinanceData): Promise<void> => {
+      const action = mutationQueue.current.then(async () => {
+        const next = await workspace.records.mutate((current) => {
+          const parsed = validateFinanceData(current)
+          for (const collection of financeCollections) {
+            const positions = new Map(
+              dataRef.current[collection].map((item, index) => [item.id, index]),
+            )
+            parsed[collection].sort(
+              (left, right) =>
+                (positions.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+                (positions.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+            )
+          }
+          const candidate = validateFinanceData(build(parsed))
+          validateRelations(candidate, [], false)
+          return candidate
+        })
+        dataRef.current = next
+        setData(next)
+        scheduleSystemSnapshot()
+      })
+      // Keep the queue usable after rejection; the caller still receives action's error.
+      mutationQueue.current = action.then(
+        () => undefined,
+        () => undefined,
+      )
+      return action
     },
     [scheduleSystemSnapshot, workspace],
+  )
+
+  const recordFinancialEvent = useCallback(
+    (command: FinancialCommand) =>
+      mutate((current) => applyFinancialCommand(current, command)),
+    [mutate],
+  )
+  const undoEvent = useCallback(
+    (id: string) => mutate((current) => undoFinancialEvent(current, id, nowIso())),
+    [mutate],
+  )
+  const finalizeEvents = useCallback(
+    (kind: FinancialSourceState['kind'], id: string) =>
+      mutate((current) => finalizeFinancialEvents(current, kind, id, nowIso())),
+    [mutate],
+  )
+
+  const save = useCallback(
+    async <K extends CollectionName>(collection: K, entity: FinanceData[K][number]) => {
+      await mutate((current) => {
+        const next = replaceEntity(current, collection, entity)
+        guardDirectSave(current, next, collection, entity.id)
+        return next
+      })
+    },
+    [mutate],
   )
 
   const saveMany = useCallback(
     async <K extends CollectionName>(collection: K, entities: FinanceData[K]) => {
-      await workspace.records.bulkPut(collection, entities)
-      const ids = new Set(entities.map((item) => item.id))
-      const kept = dataRef.current[collection].filter((item) => !ids.has(item.id))
-      const next = {
-        ...dataRef.current,
-        [collection]: [...kept, ...entities],
-      } as FinanceData
-      dataRef.current = next
-      setData(next)
-      scheduleSystemSnapshot()
+      await mutate((current) => {
+        let next = current
+        for (const entity of entities) {
+          const changed = replaceEntity(next, collection, entity)
+          guardDirectSave(next, changed, collection, entity.id)
+          next = changed
+        }
+        return next
+      })
     },
-    [scheduleSystemSnapshot, workspace],
+    [mutate],
   )
 
   const removeMany = useCallback(
     async (collection: CollectionName, ids: readonly string[]) => {
-      await workspace.records.bulkDelete(collection, ids)
-      const idSet = new Set(ids)
-      const next = removeEntities(dataRef.current, collection, idSet)
-      dataRef.current = next
-      setData(next)
-      scheduleSystemSnapshot()
+      await mutate((current) => {
+        let next = current
+        for (const id of ids) {
+          const linked =
+            collection === 'transactions'
+              ? next.transactions.find((item) => item.id === id)?.financialEventId
+              : undefined
+          if (linked) next = undoFinancialEvent(next, linked, nowIso())
+          else {
+            next = prepareSourceRemoval(next, collection, id, nowIso())
+            next = removeEntities(next, collection, new Set([id]))
+          }
+        }
+        return next
+      })
     },
-    [scheduleSystemSnapshot, workspace],
+    [mutate],
   )
 
   const remove = useCallback(
@@ -570,8 +642,7 @@ export function FinanceProvider({
 
   const commitImport = useCallback(
     async (transactions: readonly Transaction[], batch: ImportBatch) => {
-      await workspace.records.commitImport(transactions, batch)
-      setData((current) => ({
+      await mutate((current) => ({
         ...current,
         transactions: [...current.transactions, ...transactions],
         importBatches: [
@@ -579,9 +650,8 @@ export function FinanceProvider({
           batch,
         ],
       }))
-      scheduleSystemSnapshot()
     },
-    [scheduleSystemSnapshot, workspace],
+    [mutate],
   )
 
   const rollbackImport = useCallback(
@@ -591,21 +661,33 @@ export function FinanceProvider({
         rolledBackAt: new Date().toISOString(),
         ...entityTimestamps(batch),
       }
-      await workspace.records.rollbackImport(updated)
       const transactionIds = new Set(batch.createdTransactionIds)
-      setData((current) => ({
-        ...current,
-        transactions: current.transactions.filter(
-          (transaction) => !transactionIds.has(transaction.id),
-        ),
-        importBatches: [
-          ...current.importBatches.filter((item) => item.id !== batch.id),
-          updated,
-        ],
-      }))
-      scheduleSystemSnapshot()
+      await mutate((current) => {
+        if (
+          current.transactions.some(
+            (item) =>
+              transactionIds.has(item.id) &&
+              (item.financialEventId ||
+                current.transactions.some(
+                  (refund) => refund.reimbursementOf === item.id,
+                )),
+          )
+        ) {
+          throw new Error('Undo linked financial actions before rolling back this import')
+        }
+        return {
+          ...current,
+          transactions: current.transactions.filter(
+            (transaction) => !transactionIds.has(transaction.id),
+          ),
+          importBatches: [
+            ...current.importBatches.filter((item) => item.id !== batch.id),
+            updated,
+          ],
+        }
+      })
     },
-    [scheduleSystemSnapshot, workspace],
+    [mutate],
   )
 
   const settings = currentSettings(data)
@@ -617,6 +699,9 @@ export function FinanceProvider({
 
   const value = useMemo<FinanceContextValue>(
     () => ({
+      recordFinancialEvent,
+      undoFinancialEvent: undoEvent,
+      finalizeFinancialEvents: finalizeEvents,
       data,
       alerts,
       attachmentMetadata,
@@ -643,6 +728,9 @@ export function FinanceProvider({
       refresh,
     }),
     [
+      recordFinancialEvent,
+      undoEvent,
+      finalizeEvents,
       addAttachment,
       alerts,
       attachmentMetadata,

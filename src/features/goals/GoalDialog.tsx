@@ -1,11 +1,13 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { addYears, format } from 'date-fns'
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 
 import { useFinance } from '../../app/FinanceContext'
 import { entityTimestamps, newId } from '../../domain/id'
+import { validateGoalFunding } from '../../domain/goals'
+import { calculateAccountBalances } from '../../domain/calculations'
 import { paiseToRupees, rupeesToPaise } from '../../domain/money'
 import type { Goal } from '../../domain/types'
 import { Dialog } from '../../ui/Dialog'
@@ -18,6 +20,7 @@ const schema = z.object({
   targetDate: z.string().min(1, 'Choose a target date'),
   priority: z.enum(['high', 'medium', 'low']),
   linkedAccountId: z.string(),
+  fundingMode: z.enum(['balance', 'allocation']),
   plannedMonthly: z.string().min(1, 'Enter a planned monthly contribution'),
   archived: z.boolean(),
 })
@@ -35,8 +38,10 @@ export function GoalDialog({
   const { notify } = useToast()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [recordId] = useState(() => goal?.id ?? newId())
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors },
   } = useForm<Values>({
@@ -48,10 +53,13 @@ export function GoalDialog({
       targetDate: goal?.targetDate ?? format(addYears(new Date(), 2), 'yyyy-MM-dd'),
       priority: goal?.priority ?? 'medium',
       linkedAccountId: goal?.linkedAccountId ?? '',
+      fundingMode: goal?.fundingMode ?? 'balance',
       plannedMonthly: goal ? paiseToRupees(goal.plannedMonthlyPaise) : '',
       archived: goal?.archived ?? false,
     },
   })
+  const linkedAccountId = useWatch({ control, name: 'linkedAccountId' })
+  const fundingMode = useWatch({ control, name: 'fundingMode' })
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitting(true)
@@ -65,17 +73,23 @@ export function GoalDialog({
         throw new Error('Saved and monthly amounts cannot be negative')
       }
       const next: Goal = {
-        id: goal?.id ?? newId(),
+        id: recordId,
         name: values.name.trim(),
         targetPaise,
         currentPaise,
         targetDate: values.targetDate,
         priority: values.priority,
         linkedAccountId: values.linkedAccountId || null,
+        fundingMode: values.linkedAccountId ? values.fundingMode : undefined,
         plannedMonthlyPaise,
         archived: values.archived,
         ...entityTimestamps(goal ?? undefined),
       }
+      validateGoalFunding(
+        next,
+        data.goals,
+        calculateAccountBalances(data.accounts, data.transactions),
+      )
       await save('goals', next)
       notify(goal ? 'Goal updated' : 'Goal added')
       onClose()
@@ -131,17 +145,25 @@ export function GoalDialog({
           />
         </div>
         <div className="field">
-          <label htmlFor="goal-current">Amount already saved</label>
+          <label htmlFor="goal-current">
+            {linkedAccountId && fundingMode === 'allocation'
+              ? 'Allocated amount'
+              : 'Amount already saved'}
+          </label>
           <div className="currency-field">
             <span>₹</span>
             <input
               id="goal-current"
               className="input"
               inputMode="decimal"
+              disabled={Boolean(linkedAccountId) && fundingMode === 'balance'}
               {...register('current')}
             />
           </div>
-          <p className="field-hint">Ignored while an account is linked.</p>
+          <p className="field-hint">
+            Fixed allocations reserve part of the account for this goal. A
+            balance-following goal receives only the unallocated remainder.
+          </p>
         </div>
         <div className="field">
           <label htmlFor="goal-account">Linked savings account</label>
@@ -160,6 +182,19 @@ export function GoalDialog({
               ))}
           </select>
         </div>
+        {linkedAccountId ? (
+          <label className="field field-span">
+            <span>Linked-account funding</span>
+            <select className="select" {...register('fundingMode')}>
+              <option value="balance">Follow the unallocated balance</option>
+              <option value="allocation">Allocate a fixed amount</option>
+            </select>
+            <small className="field-hint">
+              If the account balance falls, fixed allocations are funded by goal priority,
+              then creation order. No goal can claim unavailable money.
+            </small>
+          </label>
+        ) : null}
         <div className="field">
           <label htmlFor="goal-monthly">Planned monthly contribution</label>
           <div className="currency-field">

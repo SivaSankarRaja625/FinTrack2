@@ -11,9 +11,8 @@ import { decodeUtf8, utf8 } from './encoding'
 import { validateRelations } from './invariants'
 import { FinanceRepository } from './repository'
 import { resetRestoredDeviceState } from './recovery-settings'
-import { validateFinanceData } from '../domain/schemas'
 import { newId } from '../domain/id'
-import { validatedDataSchemaVersion } from './migrations'
+import { upgradeFinanceData, validatedDataSchemaVersion } from './migrations'
 
 export const SYSTEM_SNAPSHOT_MAX_BYTES = 20 * 1024 * 1024
 const SYSTEM_SNAPSHOT_MAGIC = 'FINTRACK-SYSTEM-SNAPSHOT'
@@ -48,7 +47,7 @@ export async function createSystemSnapshot(
     createdAt: new Date().toISOString(),
     metadata: [
       { key: metadataKeys.security, value: security },
-      dataSchema ?? { key: metadataKeys.dataSchema, value: 2 },
+      dataSchema ?? { key: metadataKeys.dataSchema, value: CURRENT_DATA_SCHEMA_VERSION },
     ],
     records,
   }
@@ -133,7 +132,10 @@ export async function restoreSystemSnapshot(
     if (!security) throw new Error('The Android system snapshot has no security data')
     const dataKey = await unlockDataKey(pin, security)
     const stagedRepository = new FinanceRepository(dataKey, staging)
-    const records = validateFinanceData(await stagedRepository.loadAll())
+    const records = upgradeFinanceData(
+      await stagedRepository.loadAll(),
+      snapshot.metadata.find((row) => row.key === metadataKeys.dataSchema)?.value,
+    )
     validateRelations(records, [])
     const importedSettings = records.settings[0]
     if (!importedSettings) throw new Error('The system snapshot has no settings record')

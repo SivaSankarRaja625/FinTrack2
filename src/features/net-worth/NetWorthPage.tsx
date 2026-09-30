@@ -18,6 +18,12 @@ import { EmptyState, Metric, PageHeader } from '../../ui/Page'
 import { useToast } from '../../ui/Toast'
 import { AssetDialog } from './AssetDialog'
 import { NetWorthComposition } from './NetWorthComposition'
+import { nextDepositInterestDate } from '../../domain/deposit-schedule'
+import {
+  FinancialActionDialog,
+  type SimpleFinancialAction,
+} from '../../ui/FinancialActionDialog'
+import { FinancialEventHistory } from '../../ui/FinancialEventHistory'
 
 export function NetWorthPage() {
   const { data, save, remove } = useFinance()
@@ -27,6 +33,11 @@ export function NetWorthPage() {
   )
   const [deleteTarget, setDeleteTarget] = useState<Asset | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [cashAction, setCashAction] = useState<{
+    kind: SimpleFinancialAction
+    id: string
+  } | null>(null)
+  const [activityAssetId, setActivityAssetId] = useState<string | null>(null)
   const breakdown = useMemo(
     () =>
       calculateNetWorth({
@@ -282,6 +293,66 @@ export function NetWorthPage() {
                         <Icon name="trash" size={16} />
                       </button>
                     </div>
+                    <div className="cluster">
+                      {asset.kind === 'asset' &&
+                      asset.type === 'receivable' &&
+                      asset.valuePaise > 0 ? (
+                        <button
+                          type="button"
+                          className="button button-secondary"
+                          onClick={() => {
+                            setCashAction({ kind: 'receivable', id: asset.id })
+                            setActivityAssetId(asset.id)
+                          }}
+                        >
+                          Settle {asset.name}
+                        </button>
+                      ) : null}
+                      {asset.deposit ? (
+                        <p className="record-meta">
+                          Maturity {asset.deposit.maturityDate} ·{' '}
+                          {asset.deposit.maturityInstruction} · {asset.deposit.status}
+                        </p>
+                      ) : null}
+                      {asset.deposit?.status === 'active' &&
+                      nextDepositInterestDate(asset) ? (
+                        <button
+                          type="button"
+                          className="button button-secondary"
+                          onClick={() => {
+                            setCashAction({ kind: 'deposit-interest', id: asset.id })
+                            setActivityAssetId(asset.id)
+                          }}
+                        >
+                          Record interest for {asset.name}
+                        </button>
+                      ) : null}
+                      {asset.deposit?.status === 'active' &&
+                      asset.deposit.maturityInstruction === 'payout' ? (
+                        <button
+                          type="button"
+                          className="button button-secondary"
+                          onClick={() => {
+                            setCashAction({ kind: 'deposit-maturity', id: asset.id })
+                            setActivityAssetId(asset.id)
+                          }}
+                        >
+                          Record maturity of {asset.name}
+                        </button>
+                      ) : null}
+                      {data.financialEvents.some(
+                        (event) =>
+                          event.before.kind === 'asset' && event.sourceId === asset.id,
+                      ) ? (
+                        <button
+                          type="button"
+                          className="button button-secondary"
+                          onClick={() => setActivityAssetId(asset.id)}
+                        >
+                          Financial activity
+                        </button>
+                      ) : null}
+                    </div>
                   </li>
                 )
               })}
@@ -301,6 +372,16 @@ export function NetWorthPage() {
         )}
       </section>
 
+      {activityAssetId ? (
+        <FinancialEventHistory sourceId={activityAssetId} sourceKind="asset" />
+      ) : null}
+      {cashAction ? (
+        <FinancialActionDialog
+          kind={cashAction.kind}
+          sourceId={cashAction.id}
+          onClose={() => setCashAction(null)}
+        />
+      ) : null}
       {assetDialog ? (
         <AssetDialog
           asset={

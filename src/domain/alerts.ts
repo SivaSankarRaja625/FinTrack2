@@ -9,7 +9,8 @@ import {
 } from './calculations'
 import { currentMonthRange, daysUntil, isDateInRange, todayIso } from './dates'
 import { formatMoney, percentageOf } from './money'
-import { cardReminders, policyReminders } from './reminders'
+import { resolveGoalFunding } from './goals'
+import { cardReminders, depositReminders, policyReminders } from './reminders'
 import { evaluateProtectionReviews } from './reviews'
 import { calculateEmergencyReserve } from './resilience'
 import type {
@@ -148,7 +149,10 @@ export function evaluateAlerts(
     }
   }
 
-  for (const reminder of cardReminders(data, settings)) {
+  for (const reminder of [
+    ...cardReminders(data, settings),
+    ...depositReminders(data, settings),
+  ]) {
     const days = daysUntil(reminder.date, now)
     if (days > Math.max(...reminder.leadDays)) continue
     alerts.push({
@@ -163,7 +167,9 @@ export function evaluateAlerts(
     })
   }
 
-  for (const rule of data.recurringRules.filter((item) => item.active)) {
+  for (const rule of data.recurringRules.filter(
+    (item) => item.active && !item.obligation,
+  )) {
     const days = daysUntil(rule.nextDate, now)
     if (days > Math.max(rule.reminderDays, settings.notificationLeadDays)) continue
     alerts.push({
@@ -185,6 +191,9 @@ export function evaluateAlerts(
     accounts: data.accounts,
     transactions: data.transactions,
     recurringRules: data.recurringRules,
+    loans: data.loans,
+    insurancePolicies: data.insurancePolicies,
+    assets: data.assets,
     startDate: today,
     endDate: format(addDays(now, 30), 'yyyy-MM-dd'),
   })
@@ -195,7 +204,19 @@ export function evaluateAlerts(
         : lowest,
     null,
   )
-  if (lowPoint && lowPoint.projectedBalancePaise < settings.cashFlowFloorPaise) {
+  if (forecast.reviews.length) {
+    alerts.push({
+      key: 'cash-flow-risk:reconciliation',
+      ruleType: 'cash-flow-risk',
+      title: 'Cash-flow forecast needs reconciliation',
+      detail:
+        'Some scheduled items may duplicate a loan, premium or already-posted transaction. Review before relying on projected balances.',
+      severity: 'warning',
+      dueDate: null,
+      route: '/plan',
+      evidence: forecast.reviews.map((item) => item.message).join(' '),
+    })
+  } else if (lowPoint && lowPoint.projectedBalancePaise < settings.cashFlowFloorPaise) {
     alerts.push({
       key: `cash-flow-risk:${lowPoint.id}:${settings.cashFlowFloorPaise}`,
       ruleType: 'cash-flow-risk',
@@ -238,10 +259,9 @@ export function evaluateAlerts(
     })
   }
 
-  for (const goal of data.goals.filter((item) => !item.archived)) {
-    const currentPaise = goal.linkedAccountId
-      ? Math.max(0, accountBalances.get(goal.linkedAccountId) ?? 0)
-      : goal.currentPaise
+  for (const goal of resolveGoalFunding(data.goals, accountBalances)) {
+    if (goal.fundingWarning) continue
+    const currentPaise = goal.currentPaise
     const required = requiredMonthlyForGoal({ ...goal, currentPaise }, now)
     if (required <= goal.plannedMonthlyPaise) continue
     alerts.push({

@@ -36,6 +36,11 @@ const alertRules: Array<{
     description: 'Premium, renewal, and maturity dates.',
   },
   {
+    type: 'deposit-due',
+    label: 'Deposit maturity and interest',
+    description: 'Confirmed deposit payout dates and maturity instructions.',
+  },
+  {
     type: 'card-statement-due',
     label: 'Card statements',
     description: 'Manually entered statement amount and actual due date.',

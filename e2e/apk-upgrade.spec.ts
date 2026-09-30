@@ -59,7 +59,7 @@ test('unlock upgrades an earlier encrypted workspace without losing its accounts
           }),
       ),
     )
-    .toBe(2)
+    .toBe(3)
 })
 
 test('newer encrypted workspaces are not treated as wrong PIN attempts', async ({
@@ -67,7 +67,7 @@ test('newer encrypted workspaces are not treated as wrong PIN attempts', async (
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-mobile', 'Stateful upgrade workflow')
   await createWorkspace(page)
-  await setDataSchemaVersion(page, 3)
+  await setDataSchemaVersion(page, 4)
   await page.reload()
   await page.clock.pauseAt(new Date('2026-02-15T10:00:00+05:30'))
   await page.getByLabel('App PIN').fill(appPin)
@@ -77,7 +77,7 @@ test('newer encrypted workspaces are not treated as wrong PIN attempts', async (
     await expect(page.getByText(/requires a newer version/u)).toBeVisible()
     await expect(unlock).toBeEnabled()
   }
-  await setDataSchemaVersion(page, 2)
+  await setDataSchemaVersion(page, 3)
   await unlock.click()
   await page.clock.resume()
   await expect(page.getByRole('heading', { name: 'Financial overview' })).toBeVisible()

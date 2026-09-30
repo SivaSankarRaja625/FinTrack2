@@ -38,6 +38,9 @@ beforeEach(() => {
     },
   ]
   vi.mocked(useFinance).mockReturnValue({
+    recordFinancialEvent: vi.fn(),
+    undoFinancialEvent: vi.fn(),
+    finalizeFinancialEvents: vi.fn(),
     data,
     alerts: [],
     attachmentMetadata: [],
