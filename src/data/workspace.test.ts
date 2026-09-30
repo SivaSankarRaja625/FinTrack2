@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { account, transaction } from '../test/fixtures'
+import { account, loan, transaction, timestamp } from '../test/fixtures'
+import { applyFinancialCommand, undoFinancialEvent } from '../domain/financial-events'
+import { calculateAccountBalances } from '../domain/calculations'
 import { hashAttachment } from './attachments'
 import { testKdfParameters } from './crypto'
 import { createCompleteBackup } from './backup'
@@ -23,6 +25,55 @@ afterEach(async () => {
 })
 
 describe('workspace lifecycle', () => {
+  it('preserves linked cash and undo state through a complete encrypted restore', async () => {
+    db = new FinTrackDatabase(`workspace-test-${crypto.randomUUID()}`)
+    const workspace = await initializeWorkspace(
+      'secure-pin',
+      {
+        name: 'Asha',
+        locale: 'en-IN',
+        currency: 'INR',
+        monthlyIncomePaise: 0,
+        essentialMonthlyPaise: 0,
+        payDay: 1,
+        emergencyFundMonths: 0,
+      },
+      { db, kdf: testKdfParameters },
+    )
+    await workspace.records.put('accounts', account({ openingBalancePaise: 9_000_000 }))
+    await workspace.records.put('loans', loan())
+    await workspace.records.mutate((data) =>
+      applyFinancialCommand(data, {
+        id: 'payment',
+        kind: 'loan-payment',
+        sourceId: 'loan-1',
+        timestamp,
+        date: '2026-09-24',
+        note: '',
+        principalPaise: 900_000,
+        interestPaise: 100_000,
+        prepaymentPaise: 0,
+        cash: { mode: 'new', accountId: 'account-1', categoryId: null },
+      }),
+    )
+    const records = await workspace.records.loadAll()
+    const bytes = await createCompleteBackup(
+      { dataSchemaVersion: 3, records, attachments: [] },
+      'backup-pin',
+      { kdf: testKdfParameters },
+    )
+    await workspace.restoreComplete(bytes, 'backup-pin')
+    const restored = await workspace.records.loadAll()
+    expect(restored.financialEvents).toHaveLength(1)
+    expect(
+      calculateAccountBalances(restored.accounts, restored.transactions).get('account-1'),
+    ).toBe(8_000_000)
+    const undone = undoFinancialEvent(restored, 'payment', timestamp)
+    expect(undone.loans[0]?.outstandingPaise).toBe(10_000_000)
+    expect(
+      calculateAccountBalances(undone.accounts, undone.transactions).get('account-1'),
+    ).toBe(9_000_000)
+  })
   it('initializes defaults and unlocks only with the configured PIN', async () => {
     db = new FinTrackDatabase(`workspace-test-${crypto.randomUUID()}`)
     const workspace = await initializeWorkspace(
@@ -70,7 +121,7 @@ describe('workspace lifecycle', () => {
     await expect(db.records.count()).resolves.toBe(0)
   })
 
-  it('marks restored schema-v2 records as v2 without losing existing security', async () => {
+  it('promotes restored records to schema v3 without losing existing security', async () => {
     db = new FinTrackDatabase(`workspace-test-${crypto.randomUUID()}`)
     const workspace = await initializeWorkspace(
       'secure-pin',
@@ -112,7 +163,7 @@ describe('workspace lifecycle', () => {
     await db.metadata.put({ key: metadataKeys.dataSchema, value: 1 })
     await workspace.restoreComplete(bytes, 'backup-pin')
 
-    expect((await db.metadata.get(metadataKeys.dataSchema))?.value).toBe(2)
+    expect((await db.metadata.get(metadataKeys.dataSchema))?.value).toBe(3)
     const restoredSettings = (await workspace.records.loadAll()).settings[0]
     expect(restoredSettings?.notificationCatchUps).toEqual([])
     expect(restoredSettings?.verifiedBackup).toBeNull()
@@ -179,7 +230,7 @@ describe('workspace lifecycle', () => {
     await db.metadata.put({ key: metadataKeys.dataSchema, value: 1 })
 
     const upgraded = await unlockWorkspace('secure-pin', db)
-    expect((await db.metadata.get(metadataKeys.dataSchema))?.value).toBe(2)
+    expect((await db.metadata.get(metadataKeys.dataSchema))?.value).toBe(3)
     expect(await db.records.toArray()).toEqual(before)
     expect(await db.attachments.toArray()).toEqual(attachmentsBefore)
     expect(await getSecurityConfig(db)).toEqual(security)
@@ -187,7 +238,7 @@ describe('workspace lifecycle', () => {
     expect((await upgraded.attachments.get('document-1'))?.content).toEqual(document)
   })
 
-  it.each([3, '2', null])(
+  it.each([4, '2', null])(
     'refuses unsupported workspace schema %s without changing user data',
     async (version) => {
       db = new FinTrackDatabase(`workspace-test-${crypto.randomUUID()}`)
@@ -208,7 +259,7 @@ describe('workspace lifecycle', () => {
       await db.metadata.put({ key: metadataKeys.dataSchema, value: version })
 
       await expect(unlockWorkspace('secure-pin', db)).rejects.toThrow(
-        version === 3 ? /newer version/u : /schema version is invalid/u,
+        version === 4 ? /newer version/u : /schema version is invalid/u,
       )
       expect(await db.records.toArray()).toEqual(before)
       expect((await db.metadata.get(metadataKeys.dataSchema))?.value).toBe(version)

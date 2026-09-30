@@ -64,4 +64,45 @@ describe('CSV interoperability', () => {
     expect(transactionFingerprint(value)).toContain('cafe, central')
     expect(timestamp).toBeTruthy()
   })
+
+  it('flags differently described bank rows that match linked cash, including split maturity receipts', () => {
+    const preview = previewCsvTransactions({
+      rows: [
+        { Date: '24/09/2026', Description: 'BANK FD MATURITY REF 123', Credit: '112000' },
+      ],
+      mapping: {
+        date: 'Date',
+        description: 'Description',
+        amount: '',
+        type: null,
+        debit: null,
+        credit: 'Credit',
+        category: null,
+        reference: null,
+      },
+      accountId: 'account-1',
+      categories: [],
+      importBatchId: 'bank-import',
+      existing: [
+        transaction({
+          id: 'principal',
+          kind: 'adjustment',
+          amountPaise: 10_000_000,
+          date: '2026-09-24',
+          description: 'Deposit capital',
+          financialEventId: 'maturity',
+        }),
+        transaction({
+          id: 'interest',
+          kind: 'income',
+          amountPaise: 1_200_000,
+          date: '2026-09-24',
+          description: 'Deposit interest',
+          financialEventId: 'maturity',
+        }),
+      ],
+    })
+    expect(preview[0]?.duplicate).toBe(false)
+    expect(preview[0]?.possibleFinancialMatch).toBe('maturity')
+  })
 })

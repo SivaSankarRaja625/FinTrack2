@@ -12,6 +12,7 @@ import type { Transaction } from '../../domain/types'
 import { Dialog } from '../../ui/Dialog'
 import { Icon } from '../../ui/Icon'
 import { useToast } from '../../ui/Toast'
+import { ScrollableTable } from '../../ui/ScrollableTable'
 
 function findHeader(headers: string[], candidates: string[]): string {
   return (
@@ -46,6 +47,7 @@ export function CsvImportDialog({ onClose }: { onClose: () => void }) {
   const [batchId, setBatchId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [separateMatches, setSeparateMatches] = useState<Set<string>>(new Set())
   const headers = rows[0] ? Object.keys(rows[0]) : []
 
   const preview = useMemo(() => {
@@ -68,9 +70,26 @@ export function CsvImportDialog({ onClose }: { onClose: () => void }) {
     })
   }, [accountId, batchId, data.categories, data.transactions, mapping, rows])
 
-  const validRows = preview.filter((row) => row.transaction !== null && !row.duplicate)
+  const matchKey = (row: (typeof preview)[number]) =>
+    JSON.stringify([
+      accountId,
+      mapping,
+      row.values,
+      row.rowNumber,
+      row.possibleFinancialMatch,
+    ])
+  const validRows = preview.filter(
+    (row) =>
+      row.transaction !== null &&
+      !row.duplicate &&
+      (!row.possibleFinancialMatch || separateMatches.has(matchKey(row))),
+  )
   const invalidCount = preview.filter((row) => row.error).length
-  const duplicateCount = preview.filter((row) => row.duplicate).length
+  const duplicateCount = preview.filter(
+    (row) =>
+      row.duplicate ||
+      (row.possibleFinancialMatch && !separateMatches.has(matchKey(row))),
+  ).length
 
   const onFile = async (file: File | null) => {
     setError(null)
@@ -249,10 +268,12 @@ export function CsvImportDialog({ onClose }: { onClose: () => void }) {
               <h3>Preview</h3>
               <p className="field-hint">
                 Dates in DD/MM/YYYY and YYYY-MM-DD are supported. Duplicate-looking rows
-                are not imported.
+                are not imported. Entries matching linked payments or investment cash
+                within seven days are also skipped unless you confirm they are separate
+                movements.
               </p>
             </div>
-            <div className="table-wrap">
+            <ScrollableTable label="Transaction import preview">
               <table className="data-table">
                 <thead>
                   <tr>
@@ -264,31 +285,59 @@ export function CsvImportDialog({ onClose }: { onClose: () => void }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.slice(0, 10).map((row) => (
-                    <tr key={row.rowNumber}>
-                      <td>{row.rowNumber}</td>
-                      <td>{row.transaction?.date ?? '—'}</td>
-                      <td>{row.transaction?.description ?? 'Invalid row'}</td>
-                      <td>{row.transaction?.kind ?? '—'}</td>
-                      <td>
-                        <span
-                          className={`badge${
-                            row.error
-                              ? ' badge-danger'
+                  {preview
+                    .filter((row, index) => index < 10 || row.possibleFinancialMatch)
+                    .map((row) => (
+                      <tr key={row.rowNumber}>
+                        <td>{row.rowNumber}</td>
+                        <td>{row.transaction?.date ?? '—'}</td>
+                        <td>{row.transaction?.description ?? 'Invalid row'}</td>
+                        <td>{row.transaction?.kind ?? '—'}</td>
+                        <td>
+                          <span
+                            className={`badge${
+                              row.error
+                                ? ' badge-danger'
+                                : row.duplicate
+                                  ? ' badge-warning'
+                                  : ' badge-positive'
+                            }`}
+                            title={row.error ?? undefined}
+                          >
+                            {row.error
+                              ? 'Invalid'
                               : row.duplicate
-                                ? ' badge-warning'
-                                : ' badge-positive'
-                          }`}
-                          title={row.error ?? undefined}
-                        >
-                          {row.error ? 'Invalid' : row.duplicate ? 'Duplicate' : 'Ready'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                                ? 'Duplicate'
+                                : row.possibleFinancialMatch &&
+                                    !separateMatches.has(matchKey(row))
+                                  ? 'Possible linked cash match'
+                                  : 'Ready'}
+                          </span>
+                          {row.possibleFinancialMatch && !row.duplicate && !row.error ? (
+                            <label className="check-row">
+                              <input
+                                type="checkbox"
+                                checked={separateMatches.has(matchKey(row))}
+                                onChange={(event) =>
+                                  setSeparateMatches((current) => {
+                                    const next = new Set(current)
+                                    if (event.target.checked) next.add(matchKey(row))
+                                    else next.delete(matchKey(row))
+                                    return next
+                                  })
+                                }
+                              />
+                              <span>
+                                Import row {row.rowNumber} as a separate cash movement
+                              </span>
+                            </label>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollableTable>
             {preview.length > 10 ? (
               <p className="field-hint">
                 Showing 10 of {preview.length} rows. All rows are validated before import.

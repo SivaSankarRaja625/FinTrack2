@@ -16,6 +16,7 @@ export type AlertRuleType =
   | 'loan-due'
   | 'loan-payment-mismatch'
   | 'insurance-due'
+  | 'deposit-due'
   | 'card-statement-due'
   | 'recurring-due'
   | 'cash-flow-risk'
@@ -170,6 +171,9 @@ export interface Transaction extends BaseEntity {
   splits: TransactionSplit[]
   recurringRuleId: EntityId | null
   importBatchId: EntityId | null
+  financialEventId?: EntityId | undefined
+  financialOriginId?: EntityId | undefined
+  reimbursementOf?: EntityId | undefined
 }
 
 export type RecurrenceFrequency =
@@ -188,6 +192,9 @@ export interface RecurringRule extends BaseEntity {
   endDate: ISODate | null
   reminderDays: number
   active: boolean
+  obligation?: { kind: 'loan' | 'policy'; id: EntityId } | undefined
+  independentObligation?: boolean | undefined
+  unmatchedConfirmedForDate?: ISODate | null | undefined
 }
 
 export interface Budget extends BaseEntity {
@@ -216,6 +223,57 @@ export interface Asset extends BaseEntity {
   valuationDate: ISODate
   includeInNetWorth: boolean
   note: string
+  deposit?: DepositTerms | undefined
+}
+
+export interface DepositTerms {
+  principalPaise: Paise
+  maturityDate: ISODate
+  maturityAmountPaise: Paise
+  maturityInstruction: 'payout' | 'renew' | 'unknown'
+  cashAccountId: EntityId
+  interestFrequency: RecurrenceFrequency | 'at-maturity'
+  interestPaise: Paise
+  nextInterestDate: ISODate | null
+  paidInterestDates: ISODate[]
+  status: 'active' | 'matured'
+}
+
+export type FinancialSourceState =
+  | { kind: 'loan'; outstandingPaise: Paise; nextPaymentDate: ISODate; active: boolean }
+  | { kind: 'investment'; units: string; investedPaise: Paise; averageCostPaise: Paise }
+  | { kind: 'policy'; paidForDate: ISODate | null }
+  | { kind: 'recurring'; nextDate: ISODate; active: boolean }
+  | {
+      kind: 'asset'
+      valuePaise: Paise
+      valuationDate: ISODate
+      depositStatus: 'active' | 'matured' | null
+      paidInterestDates: ISODate[]
+    }
+  | { kind: 'expense' }
+
+export interface FinancialEvent extends BaseEntity {
+  kind:
+    | 'loan-payment'
+    | 'investment-activity'
+    | 'premium'
+    | 'recurring'
+    | 'receivable'
+    | 'reimbursement'
+    | 'deposit-interest'
+    | 'deposit-maturity'
+  sourceId: EntityId
+  sourceName: string
+  date: ISODate
+  occurrenceDate: ISODate | null
+  amountPaise: Paise
+  transactionIds: EntityId[]
+  originalTransactions: Transaction[]
+  before: FinancialSourceState
+  after: FinancialSourceState
+  sequence: number
+  finalized: boolean
 }
 
 export type InterestType = 'reducing' | 'flat'
@@ -234,6 +292,7 @@ export interface LoanPayment {
   interestPaise: Paise
   prepaymentPaise: Paise
   transactionId: EntityId | null
+  occurrenceDate?: ISODate | null | undefined
   note: string
 }
 
@@ -352,6 +411,7 @@ export interface Goal extends BaseEntity {
   targetDate: ISODate
   priority: 'high' | 'medium' | 'low'
   linkedAccountId: EntityId | null
+  fundingMode?: 'balance' | 'allocation' | undefined
   plannedMonthlyPaise: Paise
   archived: boolean
 }
@@ -361,6 +421,7 @@ export interface ImportBatch extends BaseEntity {
   importedAt: ISODateTime
   rowCount: number
   createdTransactionIds: EntityId[]
+  removedTransactionIds?: EntityId[] | undefined
   duplicateCount: number
   rolledBackAt: ISODateTime | null
 }
@@ -413,6 +474,7 @@ export interface FinanceData {
   goals: Goal[]
   importBatches: ImportBatch[]
   netWorthSnapshots: NetWorthSnapshot[]
+  financialEvents: FinancialEvent[]
 }
 
 export type CollectionName = keyof FinanceData

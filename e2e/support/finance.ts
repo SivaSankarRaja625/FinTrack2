@@ -1,7 +1,19 @@
-import { expect, test as base, type Page } from '@playwright/test'
+import { expect, test as base, type Locator, type Page } from '@playwright/test'
 
 export const appPin = 'FinTrack2026'
 export const testDate = '2026-02-14'
+
+export async function expectMetricValues(
+  scope: Locator,
+  expected: Readonly<Record<string, string>>,
+) {
+  for (const [label, value] of Object.entries(expected)) {
+    const metric = scope.locator('.metric').filter({
+      has: scope.page().getByText(label, { exact: true }),
+    })
+    await expect(metric.locator('.metric-value'), label).toHaveText(value)
+  }
+}
 
 export const test = base.extend({
   page: async ({ page }, run) => {

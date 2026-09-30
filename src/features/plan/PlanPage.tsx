@@ -15,6 +15,8 @@ import { ConfirmDialog } from '../../ui/Dialog'
 import { Icon } from '../../ui/Icon'
 import { EmptyState, Metric, PageHeader } from '../../ui/Page'
 import { useToast } from '../../ui/Toast'
+import { FinancialActionDialog } from '../../ui/FinancialActionDialog'
+import { FinancialEventHistory } from '../../ui/FinancialEventHistory'
 import { BudgetDialog } from './BudgetDialog'
 import { RecurringDialog } from './RecurringDialog'
 
@@ -22,7 +24,7 @@ type DeleteTarget =
   { type: 'budget'; item: Budget } | { type: 'recurring'; item: RecurringRule }
 
 export function PlanPage() {
-  const { data, remove } = useFinance()
+  const { data, remove, save } = useFinance()
   const { notify } = useToast()
   const [budgetDialog, setBudgetDialog] = useState<Budget | 'new' | null>(null)
   const [recurringDialog, setRecurringDialog] = useState<RecurringRule | 'new' | null>(
@@ -30,6 +32,9 @@ export function PlanPage() {
   )
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [postingRuleId, setPostingRuleId] = useState<string | null>(null)
+  const [startMatching, setStartMatching] = useState(false)
+  const [activityRuleId, setActivityRuleId] = useState<string | null>(null)
   const today = todayIso()
   const forecastEnd = addIsoDays(today, 90)
   const budgetStatuses = useMemo(
@@ -42,10 +47,22 @@ export function PlanPage() {
         accounts: data.accounts,
         transactions: data.transactions,
         recurringRules: data.recurringRules,
+        loans: data.loans,
+        insurancePolicies: data.insurancePolicies,
+        assets: data.assets,
         startDate: today,
         endDate: forecastEnd,
       }),
-    [data.accounts, data.recurringRules, data.transactions, forecastEnd, today],
+    [
+      data.accounts,
+      data.recurringRules,
+      data.transactions,
+      data.loans,
+      data.insurancePolicies,
+      data.assets,
+      forecastEnd,
+      today,
+    ],
   )
   const categoryNames = new Map(
     data.categories.map((category) => [category.id, category.name]),
@@ -53,10 +70,12 @@ export function PlanPage() {
   const accountNames = new Map(data.accounts.map((account) => [account.id, account.name]))
   const chartPoints = [
     {
+      date: today,
       label: format(parseISO(today), 'dd MMM'),
       value: forecast.openingBalancePaise,
     },
     ...forecast.events.map((event) => ({
+      date: event.date,
       label: format(parseISO(event.date), 'dd MMM'),
       value: event.projectedBalancePaise,
     })),
@@ -95,7 +114,7 @@ export function PlanPage() {
     <div className="page">
       <PageHeader
         title="Plan & cash flow"
-        description="Set monthly category limits and project liquid balances from explicit recurring items."
+        description="Plan recorded income, bills, debt and deposit cash movements."
         action={
           <div className="cluster">
             <button
@@ -139,14 +158,18 @@ export function PlanPage() {
         <div className="card card-body span-4">
           <Metric
             label="Projected in 90 days"
-            value={formatMoney(forecast.endingBalancePaise)}
+            value={
+              forecast.reviews.length
+                ? 'Needs review'
+                : formatMoney(forecast.endingBalancePaise)
+            }
             tone={forecast.endingBalancePaise >= 0 ? 'positive' : 'danger'}
           />
         </div>
         <div className="card card-body span-4">
           <Metric
             label="Lowest projected balance"
-            value={formatMoney(lowestBalance)}
+            value={forecast.reviews.length ? 'Needs review' : formatMoney(lowestBalance)}
             tone={lowestBalance >= 0 ? 'default' : 'danger'}
             detail={
               overBudgetCount > 0
@@ -156,80 +179,83 @@ export function PlanPage() {
           />
         </div>
       </section>
-
-      <section className="page-grid">
-        <div className="card span-7">
-          <header className="card-header">
-            <div>
-              <h2>90-day balance forecast</h2>
-              <p className="muted">
-                Liquid accounts only; transfers between liquid accounts have no net
-                effect.
-              </p>
-            </div>
-          </header>
-          <div className="card-body">
-            {forecast.events.length > 0 ? (
-              <TrendChart label="Projected liquid balance" points={chartPoints} />
-            ) : (
-              <EmptyState
-                title="No forecast events"
-                description="Add recurring income and obligations to build a projection."
-                action={
-                  data.accounts.length > 0 ? (
-                    <button
-                      type="button"
-                      className="button"
-                      onClick={() => setRecurringDialog('new')}
-                    >
-                      Add recurring item
-                    </button>
-                  ) : undefined
-                }
-              />
-            )}
-          </div>
-        </div>
-        <div className="card span-5">
-          <header className="card-header">
-            <div>
-              <h2>Upcoming</h2>
-              <p className="muted">Next expected cash movements.</p>
-            </div>
-          </header>
-          {forecast.events.length > 0 ? (
-            <div className="upcoming-list">
-              {forecast.events.slice(0, 8).map((event) => (
-                <div key={event.id} className="upcoming-row">
-                  <span
-                    className={`movement-icon${event.amountPaise >= 0 ? ' movement-in' : ' movement-out'}`}
+      {forecast.reviews.length ? (
+        <section
+          className="notice notice-warning"
+          aria-label="Forecast reconciliation needed"
+        >
+          <div className="stack">
+            <strong>Resolve possible duplicates before relying on the forecast.</strong>
+            {forecast.reviews.map((review) => (
+              <div key={`${review.ruleId}:${review.kind}`}>
+                <p>{review.message}</p>
+                <div className="cluster">
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() =>
+                      setRecurringDialog(
+                        data.recurringRules.find((rule) => rule.id === review.ruleId) ??
+                          null,
+                      )
+                    }
                   >
-                    <Icon
-                      name={event.amountPaise >= 0 ? 'arrow-down' : 'arrow-up'}
-                      size={16}
-                    />
-                  </span>
-                  <span>
-                    <strong>{event.name}</strong>
-                    <small>{format(parseISO(event.date), 'dd MMM yyyy')}</small>
-                  </span>
-                  <strong
-                    className={`tabular${event.amountPaise >= 0 ? ' text-positive' : ' text-danger'}`}
-                  >
-                    {event.amountPaise >= 0 ? '+' : '−'}
-                    {formatMoney(Math.abs(event.amountPaise))}
-                  </strong>
+                    Review schedule
+                  </button>
+                  {review.kind === 'posted' ? (
+                    <>
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => {
+                          setStartMatching(true)
+                          setPostingRuleId(review.ruleId)
+                          setActivityRuleId(review.ruleId)
+                        }}
+                      >
+                        Match bank entry
+                      </button>
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={async () => {
+                          const rule = data.recurringRules.find(
+                            (item) => item.id === review.ruleId,
+                          )
+                          if (!rule) {
+                            notify(
+                              'This schedule no longer exists. Refresh and review the plan.',
+                              'error',
+                            )
+                            return
+                          }
+                          try {
+                            await save('recurringRules', {
+                              ...rule,
+                              unmatchedConfirmedForDate: rule.nextDate,
+                              updatedAt: new Date().toISOString(),
+                            })
+                            notify('Occurrence confirmed still unpaid')
+                          } catch (error) {
+                            notify(
+                              error instanceof Error
+                                ? error.message
+                                : 'Confirmation failed',
+                              'error',
+                            )
+                          }
+                        }}
+                      >
+                        Confirm still unpaid
+                      </button>
+                    </>
+                  ) : null}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              title="Nothing scheduled"
-              description="Expected salary, bills, and transfers will appear here."
-            />
-          )}
-        </div>
-      </section>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="card">
         <header className="card-header">
@@ -281,7 +307,9 @@ export function PlanPage() {
                   <span className="progress">
                     <span
                       className={status.usedPercent >= 100 ? 'progress-danger' : ''}
-                      style={{ width: `${Math.min(100, status.usedPercent)}%` }}
+                      style={{
+                        width: `${Math.max(0, Math.min(100, status.usedPercent))}%`,
+                      }}
                     />
                   </span>
                 </button>
@@ -297,6 +325,94 @@ export function PlanPage() {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="page-grid">
+        <div className="card span-7">
+          <header className="card-header">
+            <div>
+              <h2>90-day balance forecast</h2>
+              <p className="muted">
+                Recorded recurring items, loan EMIs, premiums and confirmed deposit
+                payouts. Unconfirmed overdue items are shown at today; review arrears
+                before relying on this projection.
+              </p>
+            </div>
+          </header>
+          <div className="card-body">
+            {forecast.reviews.length ? (
+              <p className="notice notice-warning">
+                The chart is withheld until possible duplicate schedules and posted
+                entries are reviewed.
+              </p>
+            ) : forecast.events.length > 0 ? (
+              <TrendChart
+                label="Projected liquid balance"
+                points={chartPoints}
+                interpolation="step-after"
+              />
+            ) : (
+              <EmptyState
+                title="No forecast events"
+                description="Add recurring income and obligations to build a projection."
+                action={
+                  data.accounts.length > 0 ? (
+                    <button
+                      type="button"
+                      className="button"
+                      onClick={() => setRecurringDialog('new')}
+                    >
+                      Add recurring item
+                    </button>
+                  ) : undefined
+                }
+              />
+            )}
+          </div>
+        </div>
+        <div className="card span-5">
+          <header className="card-header">
+            <div>
+              <h2>Upcoming</h2>
+              <p className="muted">Next expected cash movements.</p>
+            </div>
+          </header>
+          {forecast.events.length > 0 ? (
+            <div className="upcoming-list">
+              {forecast.events.slice(0, 8).map((event) => (
+                <div key={event.id} className="upcoming-row">
+                  <span
+                    className={`movement-icon${event.amountPaise >= 0 ? ' movement-in' : ' movement-out'}`}
+                  >
+                    <Icon
+                      name={event.amountPaise >= 0 ? 'arrow-down' : 'arrow-up'}
+                      size={16}
+                    />
+                  </span>
+                  <span>
+                    <strong>{event.name}</strong>
+                    <small>
+                      {event.overdueDate
+                        ? `Overdue since ${format(parseISO(event.overdueDate), 'dd MMM yyyy')}`
+                        : format(parseISO(event.date), 'dd MMM yyyy')}
+                    </small>
+                  </span>
+                  <strong
+                    className={`tabular${event.amountPaise >= 0 ? ' text-positive' : ' text-danger'}`}
+                  >
+                    {event.amountPaise >= 0 ? '+' : '−'}
+                    {formatMoney(Math.abs(event.amountPaise))}
+                  </strong>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="Nothing scheduled"
+              description="Expected salary, bills, and transfers will appear here."
+            />
+          )}
+        </div>
       </section>
 
       <section className="card">
@@ -323,71 +439,94 @@ export function PlanPage() {
             description="Add expected salary, bills, subscriptions, or regular transfers."
           />
         ) : (
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Account</th>
-                  <th>Frequency</th>
-                  <th>Next date</th>
-                  <th className="amount-cell">Amount</th>
-                  <th>
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...data.recurringRules]
-                  .sort((left, right) => left.nextDate.localeCompare(right.nextDate))
-                  .map((rule) => (
-                    <tr key={rule.id}>
-                      <td>
-                        <button
-                          type="button"
-                          className="table-primary-action"
-                          onClick={() => setRecurringDialog(rule)}
-                        >
-                          {rule.name}
-                        </button>
-                        {!rule.active ? <small>Paused</small> : null}
-                      </td>
-                      <td>{accountNames.get(rule.accountId) ?? 'Missing account'}</td>
-                      <td>{rule.frequency.replace('-', ' ')}</td>
-                      <td>{format(parseISO(rule.nextDate), 'dd MMM yyyy')}</td>
-                      <td
-                        className={`amount-cell tabular${rule.kind === 'income' ? ' text-positive' : rule.kind === 'expense' ? ' text-danger' : ''}`}
+          <ul className="record-list" aria-label="Recurring items">
+            {[...data.recurringRules]
+              .sort((left, right) => left.nextDate.localeCompare(right.nextDate))
+              .map((rule) => (
+                <li key={rule.id} className="finance-record">
+                  <div className="finance-record-title">
+                    <button
+                      type="button"
+                      className="table-primary-action"
+                      aria-label={`Edit ${rule.name}`}
+                      onClick={() => setRecurringDialog(rule)}
+                    >
+                      {rule.name}
+                    </button>
+                    <strong
+                      className={`tabular${rule.kind === 'income' ? ' text-positive' : rule.kind === 'expense' ? ' text-danger' : ''}`}
+                    >
+                      {formatMoney(rule.amountPaise)}
+                    </strong>
+                  </div>
+                  <p className="record-meta">
+                    {accountNames.get(rule.accountId) ?? 'Missing account'} ·{' '}
+                    {rule.frequency.replace('-', ' ')} · {rule.kind}
+                  </p>
+                  <div className="cluster cluster-between">
+                    <span>
+                      {rule.active ? 'Next' : 'Paused ·'}{' '}
+                      {format(parseISO(rule.nextDate), 'dd MMM yyyy')}
+                    </span>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`Delete ${rule.name}`}
+                      onClick={() => setDeleteTarget({ type: 'recurring', item: rule })}
+                    >
+                      <Icon name="trash" size={16} />
+                    </button>
+                  </div>
+                  <div className="cluster">
+                    {rule.obligation ? (
+                      <Link
+                        className="button button-secondary"
+                        to={rule.obligation.kind === 'loan' ? '/loans' : '/insurance'}
                       >
-                        {formatMoney(rule.amountPaise)}
-                      </td>
-                      <td className="row-actions">
-                        <button
-                          type="button"
-                          className="icon-button"
-                          aria-label={`Edit ${rule.name}`}
-                          onClick={() => setRecurringDialog(rule)}
-                        >
-                          <Icon name="edit" size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-button"
-                          aria-label={`Delete ${rule.name}`}
-                          onClick={() =>
-                            setDeleteTarget({ type: 'recurring', item: rule })
-                          }
-                        >
-                          <Icon name="trash" size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
+                        Record through linked {rule.obligation.kind}
+                      </Link>
+                    ) : rule.active ? (
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => {
+                          setStartMatching(false)
+                          setPostingRuleId(rule.id)
+                          setActivityRuleId(rule.id)
+                        }}
+                      >
+                        Post / match {rule.name}
+                      </button>
+                    ) : null}
+                    {data.financialEvents.some(
+                      (event) => event.kind === 'recurring' && event.sourceId === rule.id,
+                    ) ? (
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => setActivityRuleId(rule.id)}
+                      >
+                        Financial activity
+                      </button>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+          </ul>
         )}
       </section>
 
+      {activityRuleId ? (
+        <FinancialEventHistory sourceId={activityRuleId} sourceKind="recurring" />
+      ) : null}
+      {postingRuleId ? (
+        <FinancialActionDialog
+          kind="recurring"
+          initialMode={startMatching ? 'match' : 'new'}
+          sourceId={postingRuleId}
+          onClose={() => setPostingRuleId(null)}
+        />
+      ) : null}
       {budgetDialog ? (
         <BudgetDialog
           budget={budgetDialog === 'new' ? null : budgetDialog}

@@ -37,8 +37,13 @@ test('credit cards can be added and edited from Loans without double-counting de
   ).toBeLessThanOrEqual(320)
   await openSection(page, 'Net worth')
   await expect(
-    page.locator('.composition-row').filter({ hasText: 'Debt' }).locator('strong'),
-  ).toHaveText('-₹25,000')
+    page
+      .getByRole('group', { name: 'Net worth composition' })
+      .getByRole('button', { name: /Debt.*₹25,000/ }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('img', { name: /deductions ₹25,000.*net worth -₹25,000/ }),
+  ).toBeVisible()
 
   await openSection(page, 'Transactions')
   await addAccount(page, 'Payment savings', '5000')

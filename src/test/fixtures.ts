@@ -129,6 +129,7 @@ export function financeData(overrides: Partial<FinanceData> = {}): FinanceData {
     goals: [],
     importBatches: [],
     netWorthSnapshots: [],
+    financialEvents: [],
     ...overrides,
   }
 }

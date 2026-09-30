@@ -2,7 +2,9 @@ import { formatMoney } from '../../domain/money'
 import type { RepaymentSchedule } from '../../domain/calculators/debt'
 import type { ScenarioResult } from '../../domain/calculators/types'
 import { Metric } from '../../ui/Page'
+import { LoanBalanceChart } from './LoanBalanceChart'
 import type { CalculatorOutput } from './types'
+import { ScrollableTable } from '../../ui/ScrollableTable'
 
 function LoanSchedule({
   title,
@@ -14,12 +16,12 @@ function LoanSchedule({
   return (
     <details className="calculator-schedule">
       <summary>{title} repayment schedule</summary>
-      <div className="table-wrap">
+      <ScrollableTable label={`${title} repayment values`}>
         <table className="data-table">
           <caption>{title} monthly loan payments</caption>
           <thead>
             <tr>
-              <th scope="col">EMI date</th>
+              <th scope="col">EMI number</th>
               <th scope="col">Interest</th>
               <th scope="col">EMI paid</th>
               <th scope="col">Extra principal</th>
@@ -28,8 +30,8 @@ function LoanSchedule({
           </thead>
           <tbody>
             {schedule.rows.map((row) => (
-              <tr key={row.date}>
-                <td>{row.date}</td>
+              <tr key={row.emiNumber}>
+                <td>{row.emiNumber}</td>
                 <td>{formatMoney(row.interestPaise)}</td>
                 <td>{formatMoney(row.paymentPaise)}</td>
                 <td>{formatMoney(row.prepaymentPaise)}</td>
@@ -38,7 +40,7 @@ function LoanSchedule({
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollableTable>
     </details>
   )
 }
@@ -133,7 +135,7 @@ function ScenarioDetail({ result }: { result: ScenarioResult }) {
       ) : null}
       <details className="calculator-schedule">
         <summary>Calculation schedule</summary>
-        <div className="table-wrap">
+        <ScrollableTable label={`${result.kind} cash-flow values`}>
           <table className="data-table">
             <caption>Dated cash flows and illustrative changes</caption>
             <thead>
@@ -155,7 +157,7 @@ function ScenarioDetail({ result }: { result: ScenarioResult }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollableTable>
       </details>
     </div>
   )
@@ -216,16 +218,23 @@ export function CalculatorResult({ output }: { output: CalculatorOutput }) {
           />
           <Metric label="Months saved" value={`${monthsSaved} months`} />
           <Metric
-            label="Original monthly EMI"
-            value={formatMoney(baseline.monthlyEmiPaise)}
-          />
-          <Metric
             label="EMI after prepayment"
             value={
               prepaid.monthlyEmiPaise === 0
                 ? 'No further EMI'
                 : formatMoney(prepaid.monthlyEmiPaise)
             }
+          />
+          <Metric
+            label="Final EMI after prepayment"
+            value={`EMI ${prepaid.rows.length} of ${baseline.rows.length}`}
+          />
+        </div>
+        <LoanBalanceChart result={output.result} />
+        <div className="calculator-metrics">
+          <Metric
+            label="Original monthly EMI"
+            value={formatMoney(baseline.monthlyEmiPaise)}
           />
           <Metric
             label="Interest without prepayment"
@@ -239,18 +248,15 @@ export function CalculatorResult({ output }: { output: CalculatorOutput }) {
             label="Entered prepayment charge"
             value={formatMoney(output.feePaise)}
           />
-          <Metric
-            label="New final payment"
-            value={prepaid.rows.at(-1)?.date ?? 'Not available'}
-          />
         </div>
         <LoanSchedule title="Without prepayment" schedule={baseline} />
         <LoanSchedule title="With prepayment" schedule={prepaid} />
         <p className="notice notice-info">
           Constant entered rate, monthly reducing interest at annual rate / 12 and
-          prepayment after the selected EMI. Savings are nominal, with no assumed
-          investment return, tax benefit or future rate reset. Confirm your lender&apos;s
-          recalculated schedule and disclosed charges.
+          prepayment after the selected EMI. EMI numbers are relative; no calendar payoff
+          date is implied. Savings are nominal, with no assumed investment return, tax
+          benefit or future rate reset. Confirm your lender&apos;s recalculated schedule
+          and disclosed charges.
         </p>
         <p className="field-hint">
           RBI Pre-payment Charges on Loans Directions, 2025: floating-rate non-business

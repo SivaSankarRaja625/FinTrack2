@@ -96,50 +96,58 @@ describe('complete encrypted backup', () => {
     ).rejects.toThrow()
   })
 
-  it('marks new backups as schema v2 and authenticates their creation date', async () => {
+  it('marks new backups as schema v3 and authenticates their creation date', async () => {
     const bytes = await createCompleteBackup(
       { dataSchemaVersion: 1, records: financeData(), attachments: [] },
       'backup-pin',
       { kdf: testKdfParameters },
     )
     const decoded = await readCompleteBackup(bytes, 'backup-pin')
-    expect(decoded.dataSchemaVersion).toBe(2)
+    expect(decoded.dataSchemaVersion).toBe(3)
     expect(decoded.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/u)
   })
 
-  it('imports a real schema-v1 encrypted payload without inventing its creation date', async () => {
-    const salt = crypto.getRandomValues(new Uint8Array(16))
-    const key = await derivePinKey('backup-pin', salt, testKdfParameters)
-    const encrypted = await encryptBytes(
-      gzipSync(
-        utf8(
-          JSON.stringify({
-            dataSchemaVersion: 1,
-            records: financeData(),
-            attachments: [],
-          }),
+  it.each([1, 2])(
+    'imports a real schema-v%s payload and preserves only authenticated dates',
+    async (version) => {
+      const salt = crypto.getRandomValues(new Uint8Array(16))
+      const key = await derivePinKey('backup-pin', salt, testKdfParameters)
+      const encrypted = await encryptBytes(
+        gzipSync(
+          utf8(
+            JSON.stringify({
+              dataSchemaVersion: version,
+              ...(version === 2 ? { createdAt: '2026-01-01T00:00:00.000Z' } : {}),
+              records: Object.fromEntries(
+                Object.entries(financeData()).filter(
+                  ([key]) => key !== 'financialEvents',
+                ),
+              ),
+              attachments: [],
+            }),
+          ),
         ),
-      ),
-      key,
-      'fintrack:complete-backup:v1',
-    )
-    const bytes = utf8(
-      JSON.stringify({
-        magic: 'FINTRACK-BACKUP',
-        formatVersion: 1,
-        createdAt: '2020-01-01T00:00:00.000Z',
-        appVersion: '0.1.0',
-        salt: bytesToBase64(salt),
-        kdf: testKdfParameters,
-        compressed: 'gzip',
-        ...encrypted,
-      }),
-    )
-    const restored = await readCompleteBackup(bytes, 'backup-pin')
-    expect(restored.dataSchemaVersion).toBe(2)
-    expect(restored.createdAt).toBeNull()
-    expect(restored.records).toEqual(financeData())
-  })
+        key,
+        'fintrack:complete-backup:v1',
+      )
+      const bytes = utf8(
+        JSON.stringify({
+          magic: 'FINTRACK-BACKUP',
+          formatVersion: 1,
+          createdAt: '2020-01-01T00:00:00.000Z',
+          appVersion: '0.1.0',
+          salt: bytesToBase64(salt),
+          kdf: testKdfParameters,
+          compressed: 'gzip',
+          ...encrypted,
+        }),
+      )
+      const restored = await readCompleteBackup(bytes, 'backup-pin')
+      expect(restored.dataSchemaVersion).toBe(3)
+      expect(restored.createdAt).toBe(version === 1 ? null : '2026-01-01T00:00:00.000Z')
+      expect(restored.records).toEqual(financeData())
+    },
+  )
 
   it('verifies a selected file and its relations without restoring anything', async () => {
     const records = financeData({

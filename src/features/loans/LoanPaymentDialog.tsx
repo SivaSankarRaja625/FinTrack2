@@ -1,13 +1,14 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 
 import { useFinance } from '../../app/FinanceContext'
-import { addFrequency, todayIso } from '../../domain/dates'
-import { entityTimestamps, newId } from '../../domain/id'
+import { todayIso } from '../../domain/dates'
+import { newId, nowIso } from '../../domain/id'
 import { rupeesToPaise } from '../../domain/money'
-import type { Loan, LoanPayment } from '../../domain/types'
+import type { Loan } from '../../domain/types'
+import { CashPostingFields, useCashPosting } from '../../ui/CashPostingFields'
 import { Dialog } from '../../ui/Dialog'
 import { useToast } from '../../ui/Toast'
 
@@ -28,12 +29,15 @@ export function LoanPaymentDialog({
   loan: Loan
   onClose: () => void
 }) {
-  const { save } = useFinance()
+  const { recordFinancialEvent } = useFinance()
   const { notify } = useToast()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [eventId] = useState(newId)
+  const [cash, setCash] = useCashPosting('Loan payment')
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors },
   } = useForm<Values>({
@@ -46,6 +50,7 @@ export function LoanPaymentDialog({
       note: '',
     },
   })
+  const date = useWatch({ control, name: 'date' })
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitting(true)
@@ -57,33 +62,23 @@ export function LoanPaymentDialog({
       if (principalPaise < 0 || interestPaise < 0 || prepaymentPaise < 0) {
         throw new Error('Payment components cannot be negative')
       }
-      const payment: LoanPayment = {
-        id: newId(),
+      if (principalPaise + prepaymentPaise > loan.outstandingPaise) {
+        throw new Error(
+          'Principal and prepayment cannot exceed the outstanding loan balance',
+        )
+      }
+      await recordFinancialEvent({
+        id: eventId,
+        kind: 'loan-payment',
+        sourceId: loan.id,
+        timestamp: nowIso(),
         date: values.date,
-        amountPaise: principalPaise + interestPaise + prepaymentPaise,
         principalPaise,
         interestPaise,
         prepaymentPaise,
-        transactionId: null,
+        cash,
         note: values.note.trim(),
-      }
-      if (payment.amountPaise <= 0) throw new Error('Payment must be greater than zero')
-      const next: Loan = {
-        ...loan,
-        outstandingPaise: Math.max(
-          0,
-          loan.outstandingPaise - principalPaise - prepaymentPaise,
-        ),
-        nextPaymentDate:
-          values.date >= loan.nextPaymentDate
-            ? addFrequency(loan.nextPaymentDate, 'monthly')
-            : loan.nextPaymentDate,
-        payments: [...loan.payments, payment],
-        active:
-          loan.outstandingPaise - principalPaise - prepaymentPaise > 0 && loan.active,
-        ...entityTimestamps(loan),
-      }
-      await save('loans', next)
+      })
       notify('Loan payment recorded')
       onClose()
     } catch (caught) {
@@ -99,11 +94,18 @@ export function LoanPaymentDialog({
     <Dialog
       open
       title={`Record payment · ${loan.name}`}
-      description="Separate principal, interest, and any additional prepayment so payoff tracking remains explainable."
-      onClose={onClose}
+      description="Regular principal and interest apply to the next EMI; partial payments keep the remaining amount due. Put extra principal in Additional prepayment."
+      onClose={() => {
+        if (!submitting) onClose()
+      }}
       footer={
         <div className="cluster cluster-between" style={{ width: '100%' }}>
-          <button type="button" className="button button-secondary" onClick={onClose}>
+          <button
+            type="button"
+            className="button button-secondary"
+            disabled={submitting}
+            onClick={onClose}
+          >
             Cancel
           </button>
           <button
@@ -150,6 +152,15 @@ export function LoanPaymentDialog({
             ) : null}
           </div>
         ))}
+        <div className="field-span">
+          <CashPostingFields
+            value={cash}
+            onChange={setCash}
+            date={date}
+            direction="out"
+            categoryKind="expense"
+          />
+        </div>
         <div className="field field-span">
           <label htmlFor="loan-payment-note">Note</label>
           <textarea id="loan-payment-note" className="textarea" {...register('note')} />

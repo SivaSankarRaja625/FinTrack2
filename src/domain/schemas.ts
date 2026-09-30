@@ -73,6 +73,7 @@ export const appSettingsSchema = z.object({
         'loan-due',
         'loan-payment-mismatch',
         'insurance-due',
+        'deposit-due',
         'card-statement-due',
         'recurring-due',
         'cash-flow-risk',
@@ -101,6 +102,7 @@ export const appSettingsSchema = z.object({
       'loan-due',
       'loan-payment-mismatch',
       'insurance-due',
+      'deposit-due',
       'card-statement-due',
       'recurring-due',
       'cash-flow-risk',
@@ -221,6 +223,9 @@ export const transactionSchema = z
     splits: z.array(transactionSplitSchema),
     recurringRuleId: id.nullable(),
     importBatchId: id.nullable(),
+    financialEventId: id.optional(),
+    financialOriginId: id.optional(),
+    reimbursementOf: id.optional(),
   })
   .superRefine((transaction, context) => {
     if (transaction.kind !== 'adjustment' && transaction.amountPaise <= 0) {
@@ -264,6 +269,9 @@ export const recurringRuleSchema = z.object({
   endDate: isoDate.nullable(),
   reminderDays: z.number().int().min(0).max(90),
   active: z.boolean(),
+  obligation: z.object({ kind: z.enum(['loan', 'policy']), id }).optional(),
+  independentObligation: z.boolean().optional(),
+  unmatchedConfirmedForDate: isoDate.nullable().optional(),
 })
 
 export const budgetSchema = z.object({
@@ -292,6 +300,27 @@ export const assetSchema = z.object({
   valuationDate: isoDate,
   includeInNetWorth: z.boolean(),
   note: z.string().max(2_000),
+  deposit: z
+    .object({
+      principalPaise: paise.positive(),
+      maturityDate: isoDate,
+      maturityAmountPaise: paise.nonnegative(),
+      maturityInstruction: z.enum(['payout', 'renew', 'unknown']),
+      cashAccountId: id,
+      interestFrequency: z.enum([
+        'weekly',
+        'monthly',
+        'quarterly',
+        'half-yearly',
+        'yearly',
+        'at-maturity',
+      ]),
+      interestPaise: paise.nonnegative(),
+      nextInterestDate: isoDate.nullable(),
+      paidInterestDates: z.array(isoDate),
+      status: z.enum(['active', 'matured']),
+    })
+    .optional(),
 })
 
 export const loanSchema = z.object({
@@ -326,6 +355,7 @@ export const loanSchema = z.object({
         interestPaise: paise.nonnegative(),
         prepaymentPaise: paise.nonnegative(),
         transactionId: id.nullable(),
+        occurrenceDate: isoDate.nullable().optional(),
         note: z.string().max(1_000),
       })
       .superRefine((payment, context) => {
@@ -454,6 +484,7 @@ export const goalSchema = z.object({
   targetDate: isoDate,
   priority: z.enum(['high', 'medium', 'low']),
   linkedAccountId: id.nullable(),
+  fundingMode: z.enum(['balance', 'allocation']).optional(),
   plannedMonthlyPaise: paise.nonnegative(),
   archived: z.boolean(),
 })
@@ -464,6 +495,7 @@ export const importBatchSchema = z.object({
   importedAt: isoDateTime,
   rowCount: z.number().int().nonnegative(),
   createdTransactionIds: z.array(id),
+  removedTransactionIds: z.array(id).optional(),
   duplicateCount: z.number().int().nonnegative(),
   rolledBackAt: isoDateTime.nullable(),
 })
@@ -477,6 +509,61 @@ export const netWorthSnapshotSchema = z.object({
   debtPaise: paise.nonnegative(),
   totalPaise: paise,
 })
+
+const financialSourceStateSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('loan'),
+    outstandingPaise: paise.nonnegative(),
+    nextPaymentDate: isoDate,
+    active: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal('investment'),
+    units: z.string(),
+    investedPaise: paise.nonnegative(),
+    averageCostPaise: paise.nonnegative(),
+  }),
+  z.object({ kind: z.literal('policy'), paidForDate: isoDate.nullable() }),
+  z.object({ kind: z.literal('recurring'), nextDate: isoDate, active: z.boolean() }),
+  z.object({
+    kind: z.literal('asset'),
+    valuePaise: paise.nonnegative(),
+    valuationDate: isoDate,
+    depositStatus: z.enum(['active', 'matured']).nullable(),
+    paidInterestDates: z.array(isoDate),
+  }),
+  z.object({ kind: z.literal('expense') }),
+])
+
+export const financialEventSchema = z
+  .object({
+    ...base,
+    kind: z.enum([
+      'loan-payment',
+      'investment-activity',
+      'premium',
+      'recurring',
+      'receivable',
+      'reimbursement',
+      'deposit-interest',
+      'deposit-maturity',
+    ]),
+    sourceId: id,
+    sourceName: z.string().min(1).max(300),
+    date: isoDate,
+    occurrenceDate: isoDate.nullable(),
+    amountPaise: paise.nonnegative(),
+    transactionIds: z.array(id),
+    originalTransactions: z.array(transactionSchema),
+    before: financialSourceStateSchema,
+    after: financialSourceStateSchema,
+    sequence: z.number().int().positive(),
+    finalized: z.boolean(),
+  })
+  .refine(
+    (event) => event.before.kind === event.after.kind,
+    'Financial event states must reference the same source type',
+  )
 
 export const financeDataSchema: z.ZodType<FinanceData> = z.object({
   profiles: z.array(userProfileSchema),
@@ -493,6 +580,7 @@ export const financeDataSchema: z.ZodType<FinanceData> = z.object({
   goals: z.array(goalSchema),
   importBatches: z.array(importBatchSchema),
   netWorthSnapshots: z.array(netWorthSnapshotSchema),
+  financialEvents: z.array(financialEventSchema).default([]),
 })
 
 export function validateFinanceData(value: unknown): FinanceData {

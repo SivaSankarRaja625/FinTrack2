@@ -19,6 +19,8 @@ import { EmptyState, Metric, PageHeader } from '../../ui/Page'
 import { useToast } from '../../ui/Toast'
 import { PolicyDialog } from './PolicyDialog'
 import { coverageFor } from './coverage'
+import { PremiumPaymentDialog } from './PremiumPaymentDialog'
+import { FinancialEventHistory } from '../../ui/FinancialEventHistory'
 
 const annualPremiumMultiplier: Record<InsurancePolicy['premiumFrequency'], number> = {
   weekly: 52,
@@ -52,6 +54,7 @@ export function InsurancePage() {
   } = useFinance()
   const { notify } = useToast()
   const [policyDialog, setPolicyDialog] = useState<InsurancePolicy | 'new' | null>(null)
+  const [premiumDialog, setPremiumDialog] = useState<InsurancePolicy | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [deletePolicyTarget, setDeletePolicyTarget] = useState<InsurancePolicy | null>(
     null,
@@ -199,7 +202,7 @@ export function InsurancePage() {
     }
   }
 
-  const recordPolicyEvent = async (event: 'premium' | 'renewal') => {
+  const recordPolicyRenewal = async () => {
     if (!selected) return
     const coverage = coverageFor(selected)
     try {
@@ -207,18 +210,12 @@ export function InsurancePage() {
         ...selected,
         coverage: {
           ...coverage,
-          ...(event === 'premium'
-            ? { premiumPaidForDate: selected.nextPremiumDate }
-            : { renewalConfirmedForDate: selected.renewalDate }),
+          renewalConfirmedForDate: selected.renewalDate,
           lastConfirmedAt: todayIso(),
         },
         updatedAt: nowIso(),
       })
-      notify(
-        event === 'premium'
-          ? 'Premium payment recorded; renewal still needs separate confirmation'
-          : 'Policy renewal confirmation recorded',
-      )
+      notify('Policy renewal confirmation recorded')
     } catch (error) {
       notify(
         error instanceof Error ? error.message : 'The confirmation could not be saved',
@@ -452,7 +449,7 @@ export function InsurancePage() {
                   <button
                     type="button"
                     className="button button-secondary"
-                    onClick={() => void recordPolicyEvent('premium')}
+                    onClick={() => setPremiumDialog(selected)}
                   >
                     Record premium payment
                   </button>
@@ -468,7 +465,7 @@ export function InsurancePage() {
                   <button
                     type="button"
                     className="button button-secondary"
-                    onClick={() => void recordPolicyEvent('renewal')}
+                    onClick={() => void recordPolicyRenewal()}
                   >
                     Confirm policy renewal
                   </button>
@@ -563,6 +560,15 @@ export function InsurancePage() {
         </section>
       ) : null}
 
+      {selected ? (
+        <FinancialEventHistory sourceId={selected.id} sourceKind="policy" />
+      ) : null}
+      {premiumDialog ? (
+        <PremiumPaymentDialog
+          policy={premiumDialog}
+          onClose={() => setPremiumDialog(null)}
+        />
+      ) : null}
       {policyDialog ? (
         <PolicyDialog
           policy={policyDialog === 'new' ? null : policyDialog}

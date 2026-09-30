@@ -3,6 +3,7 @@ import { gunzipSync, gzipSync } from 'fflate'
 import { validateFinanceData } from '../domain/schemas'
 import type { AttachmentMeta, FinanceData, UserProfile } from '../domain/types'
 import { validateRelations } from './invariants'
+import { upgradeFinanceData } from './migrations'
 import {
   type EncryptedPayload,
   type KdfParameters,
@@ -22,7 +23,7 @@ export interface BackupAttachment {
 }
 
 export interface CompleteBackupPayload {
-  dataSchemaVersion: 2
+  dataSchemaVersion: 3
   createdAt: string | null
   records: FinanceData
   attachments: BackupAttachment[]
@@ -54,7 +55,7 @@ function isBackupEnvelope(value: unknown): value is BackupEnvelope {
 
 export async function createCompleteBackup(
   payload: Omit<CompleteBackupPayload, 'dataSchemaVersion' | 'createdAt'> & {
-    dataSchemaVersion: 1 | 2
+    dataSchemaVersion: 1 | 2 | 3
   },
   pin: string,
   options?: { kdf?: KdfParameters; appVersion?: string },
@@ -63,7 +64,7 @@ export async function createCompleteBackup(
   const createdAt = new Date().toISOString()
   const currentPayload: CompleteBackupPayload = {
     ...payload,
-    dataSchemaVersion: 2,
+    dataSchemaVersion: 3,
     createdAt,
   }
   const kdf = options?.kdf ?? productionKdfParameters
@@ -118,21 +119,21 @@ export async function readCompleteBackup(
     throw new Error('The backup payload is invalid')
   }
   const payload = parsed as Partial<Omit<CompleteBackupPayload, 'dataSchemaVersion'>> & {
-    dataSchemaVersion?: 1 | 2
+    dataSchemaVersion?: 1 | 2 | 3
   }
   if (
-    (payload.dataSchemaVersion !== 1 && payload.dataSchemaVersion !== 2) ||
+    ![1, 2, 3].includes(payload.dataSchemaVersion ?? 0) ||
     !Array.isArray(payload.attachments)
   ) {
     throw new Error('The backup data version is not supported')
   }
   if (
-    payload.dataSchemaVersion === 2 &&
+    payload.dataSchemaVersion !== 1 &&
     (typeof payload.createdAt !== 'string' || Number.isNaN(Date.parse(payload.createdAt)))
   ) {
     throw new Error('The backup creation date is invalid')
   }
-  const records = validateFinanceData(payload.records)
+  const records = upgradeFinanceData(payload.records, payload.dataSchemaVersion)
   const attachments = payload.attachments.map((attachment, index) => {
     if (
       !attachment ||
@@ -149,8 +150,8 @@ export async function readCompleteBackup(
     return attachment as BackupAttachment
   })
   return {
-    dataSchemaVersion: 2,
-    createdAt: payload.dataSchemaVersion === 2 ? payload.createdAt! : null,
+    dataSchemaVersion: 3,
+    createdAt: payload.dataSchemaVersion !== 1 ? payload.createdAt! : null,
     records,
     attachments,
   }

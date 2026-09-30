@@ -1,6 +1,7 @@
 import { differenceInCalendarDays, parseISO, subDays } from 'date-fns'
 
 import { formatMoney } from './money'
+import { nextDepositInterestDate } from './deposit-schedule'
 import type { AlertRuleType, AppSettings, FinanceData, InsurancePolicy } from './types'
 
 export interface DatedReminder {
@@ -98,6 +99,41 @@ export function cardReminders(data: FinanceData, settings: AppSettings): DatedRe
   })
 }
 
+export function depositReminders(
+  data: FinanceData,
+  settings: AppSettings,
+): DatedReminder[] {
+  return data.assets.flatMap((asset) => {
+    const terms = asset.deposit
+    if (!terms || terms.status !== 'active') return []
+    const reminders: DatedReminder[] = [
+      {
+        key: `deposit:${asset.id}:maturity:${terms.maturityDate}`,
+        ruleType: 'deposit-due',
+        title: `${asset.name} maturity needs review`,
+        date: terms.maturityDate,
+        route: '/net-worth',
+        leadDays: [Math.max(settings.notificationLeadDays, 7), 0],
+        detail: `Recorded instruction: ${terms.maturityInstruction}. Confirm payout or renewal with the bank; no money is posted automatically.`,
+        evidence: `Principal ${formatMoney(terms.principalPaise)}; confirmed maturity proceeds ${formatMoney(terms.maturityAmountPaise)}.`,
+      },
+    ]
+    const interest = nextDepositInterestDate(asset)
+    if (interest)
+      reminders.push({
+        key: `deposit:${asset.id}:interest:${interest}`,
+        ruleType: 'deposit-due',
+        title: `${asset.name} interest receipt needs review`,
+        date: interest,
+        route: '/net-worth',
+        leadDays: [settings.notificationLeadDays, 0],
+        detail: `Check the ${formatMoney(terms.interestPaise)} expected payout and record or match actual cash received.`,
+        evidence: `Recorded ${terms.interestFrequency} payout; principal is not income.`,
+      })
+    return reminders
+  })
+}
+
 export function collectDatedReminders(
   data: FinanceData,
   settings: AppSettings,
@@ -118,7 +154,7 @@ export function collectDatedReminders(
       })),
     ...data.insurancePolicies.flatMap((policy) => policyReminders(policy, settings)),
     ...data.recurringRules
-      .filter((rule) => rule.active)
+      .filter((rule) => rule.active && !rule.obligation)
       .map((rule) => ({
         key: `recurring:${rule.id}:${rule.nextDate}`,
         ruleType: 'recurring-due' as const,
@@ -130,6 +166,7 @@ export function collectDatedReminders(
         evidence: `Recorded ${rule.frequency} ${rule.kind}.`,
       })),
     ...cardReminders(data, settings),
+    ...depositReminders(data, settings),
   ]
     .filter(
       (item) =>

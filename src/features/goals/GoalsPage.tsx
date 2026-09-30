@@ -8,6 +8,7 @@ import {
 } from '../../domain/calculations'
 import { todayIso } from '../../domain/dates'
 import { formatMoney, percentageOf } from '../../domain/money'
+import { resolveGoalFunding } from '../../domain/goals'
 import type { Goal } from '../../domain/types'
 import { ConfirmDialog } from '../../ui/Dialog'
 import { Icon } from '../../ui/Icon'
@@ -26,13 +27,7 @@ export function GoalsPage() {
     () => calculateAccountBalances(data.accounts, data.transactions),
     [data.accounts, data.transactions],
   )
-  const activeGoals = data.goals.filter((goal) => !goal.archived)
-  const resolvedGoals = activeGoals.map((goal) => ({
-    ...goal,
-    currentPaise: goal.linkedAccountId
-      ? Math.max(0, balances.get(goal.linkedAccountId) ?? 0)
-      : goal.currentPaise,
-  }))
+  const resolvedGoals = resolveGoalFunding(data.goals, balances)
   const totalTarget = resolvedGoals.reduce((sum, goal) => sum + goal.targetPaise, 0)
   const totalSaved = resolvedGoals.reduce((sum, goal) => sum + goal.currentPaise, 0)
   const monthlyPlan = resolvedGoals.reduce(
@@ -88,6 +83,12 @@ export function GoalsPage() {
         </div>
       </section>
 
+      {resolvedGoals.some((goal) => goal.fundingWarning) ? (
+        <p className="notice notice-warning" role="alert">
+          Shared goal funding needs review. Unresolved goals are excluded from funded
+          totals so the same bank balance is not counted more than once.
+        </p>
+      ) : null}
       {resolvedGoals.length === 0 ? (
         <section className="card">
           <EmptyState
@@ -156,7 +157,9 @@ export function GoalsPage() {
                   <div className="goal-body">
                     <div className="cluster cluster-between">
                       <strong className="goal-total tabular">
-                        {formatMoney(goal.currentPaise)}
+                        {goal.fundingWarning
+                          ? 'Review funding'
+                          : formatMoney(goal.currentPaise)}
                       </strong>
                       <span className="muted">of {formatMoney(goal.targetPaise)}</span>
                     </div>
@@ -173,7 +176,9 @@ export function GoalsPage() {
                     <div className="goal-stats">
                       <div>
                         <span>Required monthly</span>
-                        <strong>{formatMoney(required)}</strong>
+                        <strong>
+                          {goal.fundingWarning ? 'Review funding' : formatMoney(required)}
+                        </strong>
                       </div>
                       <div>
                         <span>Current plan</span>
@@ -184,12 +189,24 @@ export function GoalsPage() {
                         <strong>{months} months</strong>
                       </div>
                     </div>
-                    {linkedAccount ? (
+                    {goal.fundingWarning ? (
+                      <p className="inline-warning">{goal.fundingWarning}</p>
+                    ) : linkedAccount ? (
                       <p className="field-hint">
-                        Progress uses the current balance of {linkedAccount.name}.
+                        {goal.fundingMode === 'allocation'
+                          ? 'Fixed allocation backed by'
+                          : 'Progress follows the unallocated balance of'}{' '}
+                        {linkedAccount.name}.
                       </p>
                     ) : null}
-                    {goal.plannedMonthlyPaise < required ? (
+                    {goal.allocationShortfallPaise > 0 ? (
+                      <p className="inline-warning">
+                        {formatMoney(goal.allocationShortfallPaise)} of the requested
+                        allocation is not backed by the current balance. Review spending
+                        or allocations.
+                      </p>
+                    ) : null}
+                    {!goal.fundingWarning && goal.plannedMonthlyPaise < required ? (
                       <p className="inline-warning">
                         Planned contribution is{' '}
                         {formatMoney(required - goal.plannedMonthlyPaise)} below the
@@ -200,6 +217,7 @@ export function GoalsPage() {
                       <button
                         type="button"
                         className="button button-secondary button-small"
+                        disabled={Boolean(goal.fundingWarning)}
                         onClick={() => {
                           setScenarioGoalId(goal.id)
                           setScenarioDate(goal.targetDate)

@@ -79,5 +79,6 @@ export function emptyFinanceData(): FinanceData {
     goals: [],
     importBatches: [],
     netWorthSnapshots: [],
+    financialEvents: [],
   }
 }

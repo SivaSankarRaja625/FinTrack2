@@ -1,6 +1,12 @@
 import { expect } from '@playwright/test'
 
-import { appPin, createWorkspace, openSection, test } from './support/finance'
+import {
+  appPin,
+  createWorkspace,
+  expectMetricValues,
+  openSection,
+  test,
+} from './support/finance'
 import { addAccount, addTransaction } from './support/records'
 
 test('a complete backup restores prior finance data and exports a safety copy', async ({
@@ -40,9 +46,17 @@ test('a complete backup restores prior finance data and exports a safety copy', 
     description: 'Remove on restore',
   })
   await expect(page.getByRole('button', { name: 'Edit Remove on restore' })).toBeVisible()
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await expectMetricValues(page.locator('.dashboard-summary'), {
+    'Current net worth': '₹140',
+    'Income this month': '₹50',
+    'Expenses this month': '₹10',
+    'Monthly cash flow': '₹40',
+  })
 
   await openSection(page, 'Settings')
   await page.getByRole('button', { name: 'Backup & restore' }).click()
+  await page.getByText('Restore complete backup', { exact: true }).click()
   await page.getByLabel('.finapp backup file').setInputFiles(backupFile)
   await page.getByLabel('Backup file PIN').fill('Export2026')
   await page.getByLabel('New safety-backup PIN').fill('Safety2026')
@@ -56,6 +70,13 @@ test('a complete backup restores prior finance data and exports a safety copy', 
   ])
   expect(safetyBackup.suggestedFilename()).toMatch(/\.finapp$/u)
   const confirmation = page.getByRole('dialog', { name: 'Replace all current data?' })
+  await expect(confirmation.getByLabel('Saved safety-backup file')).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect
+    .poll(() =>
+      confirmation.evaluate((element) => element.contains(document.activeElement)),
+    )
+    .toBe(true)
   await confirmation.getByLabel('Saved safety-backup file').setInputFiles(backupFile)
   await confirmation
     .getByRole('button', { name: 'Verify safety copy and restore' })
@@ -75,6 +96,13 @@ test('a complete backup restores prior finance data and exports a safety copy', 
   await expect(page.getByRole('button', { name: 'Edit Remove on restore' })).toHaveCount(
     0,
   )
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await expectMetricValues(page.locator('.dashboard-summary'), {
+    'Current net worth': '₹90',
+    'Income this month': '₹0',
+    'Expenses this month': '₹10',
+    'Monthly cash flow': '-₹10',
+  })
 })
 
 test('an incorrect backup PIN preserves the current workspace', async ({
@@ -95,6 +123,7 @@ test('an incorrect backup PIN preserves the current workspace', async ({
   await addAccount(page, 'Keep this account', '100')
   await openSection(page, 'Settings')
   await page.getByRole('button', { name: 'Backup & restore' }).click()
+  await page.getByText('Restore complete backup', { exact: true }).click()
   await page.getByLabel('.finapp backup file').setInputFiles(await backup.path())
   await page.getByLabel('Backup file PIN').fill('Wrong2026')
   await page.getByLabel('New safety-backup PIN').fill('Safety2026')
@@ -106,6 +135,7 @@ test('an incorrect backup PIN preserves the current workspace', async ({
   ).toBeVisible()
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await openSection(page, 'Transactions')
+  await page.locator('.activity-accounts > summary').click()
   await expect(
     page.getByRole('button', { name: 'Keep this account savings ₹100' }),
   ).toBeVisible()
@@ -125,13 +155,17 @@ test('export does not count as recovery until the saved file is reopened and ver
     page.getByRole('button', { name: 'Export complete backup' }).click(),
   ])
   await expect(page.getByText('No dated backup verified')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '2. Reopen and verify' })).toBeVisible()
+  await expect(page.getByRole('status', { name: 'Backup progress' })).toContainText(
+    'reopen',
+  )
   const savedFile = await download.path()
   await page.getByLabel('Saved .finapp file to verify').setInputFiles(savedFile)
   await page.getByLabel('Saved backup PIN').fill('Wrong2026')
   await page.getByRole('button', { name: 'Verify saved backup' }).click()
-  await expect(
-    page.getByText('The PIN is incorrect or the encrypted data is damaged'),
-  ).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText(
+    'The PIN is incorrect or the encrypted data is damaged',
+  )
   await expect(page.getByText('No dated backup verified')).toBeVisible()
   await page.getByLabel('Saved backup PIN').fill('Export2026')
   await page.getByRole('button', { name: 'Verify saved backup' }).click()
@@ -142,6 +176,7 @@ test('export does not count as recovery until the saved file is reopened and ver
   await page.getByRole('button', { name: 'Unlock', exact: true }).click()
   await openSection(page, 'Settings')
   await page.getByRole('button', { name: 'Backup & restore' }).click()
+  await page.getByRole('button', { name: 'Verify an existing file' }).click()
   await expect(page.getByText(/Last checked.*records and.*documents/u)).toBeVisible()
 })
 
@@ -169,14 +204,15 @@ test('a backup from another workspace cannot be marked verified', async ({
 
     await openSection(page, 'Settings')
     await page.getByRole('button', { name: 'Backup & restore' }).click()
+    await page.getByRole('button', { name: 'Verify an existing file' }).click()
     await page
       .getByLabel('Saved .finapp file to verify')
       .setInputFiles(await download.path())
     await page.getByLabel('Saved backup PIN').fill('Export2026')
     await page.getByRole('button', { name: 'Verify saved backup' }).click()
-    await expect(
-      page.getByText('This backup belongs to a different workspace'),
-    ).toBeVisible()
+    await expect(page.getByRole('alert')).toContainText(
+      'This backup belongs to a different workspace',
+    )
     await expect(page.getByText('No dated backup verified')).toBeVisible()
   } finally {
     await other.close()

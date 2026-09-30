@@ -30,6 +30,7 @@ import {
 } from '../../domain/calculators/wealth'
 import { isIsoDate } from '../../domain/dates'
 import { assertPaise, formatMoney, rupeesToPaise } from '../../domain/money'
+import { resolveGoalFunding } from '../../domain/goals'
 import type { CalculatorOutput, CoreCalculatorKind } from './types'
 
 type Values = Record<string, string>
@@ -791,7 +792,7 @@ export function CalculatorForm({
     'delay',
     'retirement',
   ].includes(kind)
-  const goalOptions = data.goals.filter((goal) => !goal.archived)
+  const goalOptions = resolveGoalFunding(data.goals, balances)
 
   return (
     <form className="card card-body calculator-form" noValidate onSubmit={onSubmit}>
@@ -808,17 +809,15 @@ export function CalculatorForm({
             className="select"
             value={goalId}
             onChange={(event) => {
-              const selected = data.goals.find((item) => item.id === event.target.value)
+              const selected = goalOptions.find(
+                (item) => item.id === event.target.value && !item.fundingWarning,
+              )
               setGoalId(event.target.value)
               if (selected) {
                 setValues((current) => ({
                   ...current,
                   target: String(selected.targetPaise / 100),
-                  opening: String(
-                    (selected.linkedAccountId
-                      ? Math.max(0, balances.get(selected.linkedAccountId) ?? 0)
-                      : selected.currentPaise) / 100,
-                  ),
+                  opening: String(selected.currentPaise / 100),
                   matures: selected.targetDate,
                 }))
                 setErrors({})
@@ -828,8 +827,13 @@ export function CalculatorForm({
           >
             <option value="">Enter a new goal instead</option>
             {goalOptions.map((goal) => (
-              <option key={goal.id} value={goal.id}>
+              <option
+                key={goal.id}
+                value={goal.id}
+                disabled={Boolean(goal.fundingWarning)}
+              >
                 {goal.name}
+                {goal.fundingWarning ? ' — review shared funding in Goals' : ''}
               </option>
             ))}
           </select>

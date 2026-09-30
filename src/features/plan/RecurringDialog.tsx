@@ -25,6 +25,8 @@ const schema = z
     endDate: z.string(),
     reminderDays: z.coerce.number().int().min(0).max(90),
     active: z.boolean(),
+    obligation: z.string(),
+    independentObligation: z.boolean(),
   })
   .superRefine((values, context) => {
     try {
@@ -83,6 +85,8 @@ export function RecurringDialog({
       endDate: rule?.endDate ?? '',
       reminderDays: rule?.reminderDays ?? 3,
       active: rule?.active ?? true,
+      obligation: rule?.obligation ? `${rule.obligation.kind}:${rule.obligation.id}` : '',
+      independentObligation: rule?.independentObligation ?? false,
     },
   })
   const kind = useWatch({ control, name: 'kind' })
@@ -111,6 +115,15 @@ export function RecurringDialog({
         endDate: values.endDate || null,
         reminderDays: values.reminderDays,
         active: values.active,
+        independentObligation: values.independentObligation,
+        unmatchedConfirmedForDate:
+          rule?.nextDate === values.nextDate ? rule?.unmatchedConfirmedForDate : null,
+        obligation:
+          values.kind === 'expense' && values.obligation.startsWith('loan:')
+            ? { kind: 'loan', id: values.obligation.slice(5) }
+            : values.kind === 'expense' && values.obligation.startsWith('policy:')
+              ? { kind: 'policy', id: values.obligation.slice(7) }
+              : undefined,
         ...entityTimestamps(rule ?? undefined),
       }
       await save('recurringRules', next)
@@ -151,6 +164,41 @@ export function RecurringDialog({
       }
     >
       <form id="recurring-form" className="form-grid" onSubmit={onSubmit} noValidate>
+        {kind === 'expense' ? (
+          <section className="field field-span">
+            <label className="field">
+              <span>Already tracked obligation (optional)</span>
+              <select className="select" {...register('obligation')}>
+                <option value="">Separate recurring expense</option>
+                {data.loans
+                  .filter((loan) => loan.active)
+                  .map((loan) => (
+                    <option key={loan.id} value={`loan:${loan.id}`}>
+                      {loan.name} EMI
+                    </option>
+                  ))}
+                {data.insurancePolicies
+                  .filter((policy) => policy.active)
+                  .map((policy) => (
+                    <option key={policy.id} value={`policy:${policy.id}`}>
+                      {policy.policyName} premium
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <small className="field-hint">
+              Link duplicate schedules explicitly. The loan or policy then owns
+              forecasting and payment; this rule is not counted again.
+            </small>
+            <label className="check-row">
+              <input type="checkbox" {...register('independentObligation')} />
+              <span>
+                This is a separate expense, even if its amount and date match a loan or
+                premium.
+              </span>
+            </label>
+          </section>
+        ) : null}
         <div className="field">
           <label htmlFor="recurring-name">Name</label>
           <input

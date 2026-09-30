@@ -10,6 +10,7 @@ import { newId, nowIso } from '../../domain/id'
 import { rupeesToPaise } from '../../domain/money'
 import type { InvestmentHolding } from '../../domain/types'
 import { Dialog } from '../../ui/Dialog'
+import { CashPostingFields, useCashPosting } from '../../ui/CashPostingFields'
 import { useToast } from '../../ui/Toast'
 
 const schema = z.object({
@@ -30,10 +31,12 @@ export function ActivityDialog({
   holding: InvestmentHolding
   onClose: () => void
 }) {
-  const { save } = useFinance()
+  const { recordFinancialEvent } = useFinance()
   const { notify } = useToast()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [eventId] = useState(newId)
+  const [cash, setCash] = useCashPosting('Other income')
   const { register, handleSubmit, control } = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -46,6 +49,7 @@ export function ActivityDialog({
     },
   })
   const type = useWatch({ control, name: 'type' })
+  const date = useWatch({ control, name: 'date' })
   const changesUnits = type !== 'dividend'
 
   const onSubmit = handleSubmit(async (values) => {
@@ -66,50 +70,18 @@ export function ActivityDialog({
         throw new Error('Enter units or a unit price')
       }
 
-      const currentUnits = new Decimal(holding.units)
-      let nextUnits = currentUnits
-      let nextInvested = holding.investedPaise
-      if (values.type === 'buy' || values.type === 'contribution') {
-        nextUnits = currentUnits.plus(activityUnits)
-        nextInvested += amountPaise
-      } else if (values.type === 'sell' || values.type === 'withdrawal') {
-        if (activityUnits.greaterThan(currentUnits)) {
-          throw new Error('Units removed cannot exceed the current units')
-        }
-        const basisReduction = currentUnits.isZero()
-          ? 0
-          : new Decimal(holding.investedPaise)
-              .mul(activityUnits)
-              .div(currentUnits)
-              .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-              .toNumber()
-        nextUnits = currentUnits.minus(activityUnits)
-        nextInvested = Math.max(0, holding.investedPaise - basisReduction)
-      }
-      const averageCostPaise = nextUnits.isZero()
-        ? 0
-        : new Decimal(nextInvested)
-            .div(nextUnits)
-            .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-            .toNumber()
-      await save('investments', {
-        ...holding,
-        units: nextUnits.toString(),
-        investedPaise: nextInvested,
-        averageCostPaise,
-        activities: [
-          ...holding.activities,
-          {
-            id: newId(),
-            date: values.date,
-            type: values.type,
-            units: activityUnits.toString(),
-            amountPaise,
-            pricePaise,
-            note: values.note.trim(),
-          },
-        ],
-        updatedAt: nowIso(),
+      await recordFinancialEvent({
+        id: eventId,
+        timestamp: nowIso(),
+        kind: 'investment-activity',
+        sourceId: holding.id,
+        date: values.date,
+        activityType: values.type,
+        units: activityUnits.toString(),
+        amountPaise,
+        pricePaise,
+        note: values.note.trim(),
+        cash,
       })
       notify('Investment activity recorded')
       onClose()
@@ -127,10 +99,17 @@ export function ActivityDialog({
       open
       title={`Record activity for ${holding.name}`}
       description="Cost basis is adjusted for buys and proportional units sold. Dividends do not change units."
-      onClose={onClose}
+      onClose={() => {
+        if (!submitting) onClose()
+      }}
       footer={
         <div className="cluster cluster-between" style={{ width: '100%' }}>
-          <button type="button" className="button button-secondary" onClick={onClose}>
+          <button
+            type="button"
+            className="button button-secondary"
+            disabled={submitting}
+            onClick={onClose}
+          >
             Cancel
           </button>
           <button
@@ -199,6 +178,15 @@ export function ActivityDialog({
         <div className="field field-span">
           <label htmlFor="activity-note">Note</label>
           <textarea id="activity-note" className="textarea" {...register('note')} />
+        </div>
+        <div className="field-span">
+          <CashPostingFields
+            value={cash}
+            onChange={setCash}
+            date={date}
+            direction={type === 'buy' || type === 'contribution' ? 'out' : 'in'}
+            categoryKind={type === 'dividend' ? 'income' : null}
+          />
         </div>
         {error ? (
           <p className="field-error field-span" role="alert">

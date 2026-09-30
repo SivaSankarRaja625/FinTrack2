@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core'
 import { format } from 'date-fns'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { useFinance } from '../../app/FinanceContext'
 import { useSecurity } from '../../app/SecurityContext'
@@ -20,6 +20,7 @@ import { ConfirmDialog, Dialog } from '../../ui/Dialog'
 import { Icon } from '../../ui/Icon'
 import { PageHeader } from '../../ui/Page'
 import { useToast } from '../../ui/Toast'
+import { ScrollableTable } from '../../ui/ScrollableTable'
 
 function validPin(pin: string): boolean {
   return pin.length >= 6 && /[a-z]/iu.test(pin) && /\d/u.test(pin)
@@ -76,6 +77,11 @@ export function SettingsPage() {
   const [confirmPin, setConfirmPin] = useState('')
   const [exportPin, setExportPin] = useState('')
   const [confirmExportPin, setConfirmExportPin] = useState('')
+  const [backupStep, setBackupStep] = useState<'create' | 'verify'>('create')
+  const [backupOffered, setBackupOffered] = useState(false)
+  const [backupError, setBackupError] = useState<string | null>(null)
+  const verifyHeading = useRef<HTMLHeadingElement>(null)
+  const safetyInput = useRef<HTMLInputElement>(null)
   const [restoreFile, setRestoreFile] = useState<File | null>(null)
   const [verifyFile, setVerifyFile] = useState<File | null>(null)
   const [verifyPin, setVerifyPin] = useState('')
@@ -95,6 +101,13 @@ export function SettingsPage() {
   useEffect(() => {
     void estimateStorage().then(setStorage)
   }, [attachmentMetadata, data])
+  useLayoutEffect(() => {
+    if (backupStep === 'verify') verifyHeading.current?.focus()
+  }, [backupStep])
+  useLayoutEffect(() => {
+    if (restoreConfirmOpen && safetyFingerprint && busy === null)
+      safetyInput.current?.focus()
+  }, [restoreConfirmOpen, safetyFingerprint, busy])
 
   const saveSettings = async (changes: Partial<AppSettings>) => {
     try {
@@ -228,6 +241,7 @@ export function SettingsPage() {
 
   const exportBackup = async () => {
     setBusy('export')
+    setBackupError(null)
     try {
       if (!validPin(exportPin)) {
         throw new Error('Use at least six characters with a letter and a number')
@@ -241,12 +255,17 @@ export function SettingsPage() {
       )
       setExportPin('')
       setConfirmExportPin('')
+      setBackupOffered(true)
+      setBackupStep('verify')
       notify(
         result === 'shared'
           ? 'Share sheet closed. FinTrack cannot confirm a copy was saved; reopen the saved file to verify it.'
           : 'Backup download started. Reopen the saved file to confirm it is recoverable.',
       )
     } catch (error) {
+      setBackupError(
+        error instanceof Error ? error.message : 'Backup could not be created',
+      )
       notify(
         error instanceof Error ? error.message : 'Backup could not be created',
         'error',
@@ -259,6 +278,7 @@ export function SettingsPage() {
   const verifyBackup = async () => {
     if (!verifyFile) return
     setBusy('verify')
+    setBackupError(null)
     try {
       const summary = await verifyCompleteBackup(
         await readFileBytes(verifyFile),
@@ -266,12 +286,16 @@ export function SettingsPage() {
       )
       setVerifyPin('')
       setVerifyFile(null)
+      setBackupOffered(false)
       notify(
         summary.createdAt
           ? 'Saved backup authenticated and validated without replacing your data'
           : 'Legacy backup validated; its creation date cannot be authenticated',
       )
     } catch (error) {
+      setBackupError(
+        error instanceof Error ? error.message : 'Backup verification failed',
+      )
       notify(
         error instanceof Error ? error.message : 'Backup verification failed',
         'error',
@@ -282,6 +306,7 @@ export function SettingsPage() {
   }
 
   const closeRestore = () => {
+    if (busy === 'safety' || busy === 'restore') return
     setRestoreConfirmOpen(false)
     setSafetyFile(null)
     setSafetyFingerprint(null)
@@ -642,7 +667,7 @@ export function SettingsPage() {
                   Add category
                 </button>
               </div>
-              <div className="table-wrap">
+              <ScrollableTable label="Income and expense categories">
                 <table className="data-table">
                   <thead>
                     <tr>
@@ -684,7 +709,7 @@ export function SettingsPage() {
                       ))}
                   </tbody>
                 </table>
-              </div>
+              </ScrollableTable>
             </section>
           ) : null}
 
@@ -809,85 +834,141 @@ export function SettingsPage() {
                     <span className="badge badge-danger">No dated backup verified</span>
                   )}
                 </header>
-                <div className="settings-form">
-                  <label className="field">
-                    <span>Backup PIN</span>
-                    <input
-                      className="input"
-                      type="password"
-                      autoComplete="new-password"
-                      value={exportPin}
-                      onChange={(event) => setExportPin(event.target.value)}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Confirm backup PIN</span>
-                    <input
-                      className="input"
-                      type="password"
-                      autoComplete="new-password"
-                      value={confirmExportPin}
-                      onChange={(event) => setConfirmExportPin(event.target.value)}
-                    />
-                  </label>
-                  <p className="field-hint field-span">
-                    This PIN cannot be reset. Store the exported file away from this
-                    device. Exporting or opening the share sheet does not prove the file
-                    was saved.
-                  </p>
-                  <div className="settings-save field-span">
+                <div className="card-body stack">
+                  <div className="cluster">
                     <button
                       type="button"
-                      className="button"
-                      disabled={busy === 'export'}
-                      onClick={() => void exportBackup()}
+                      className="button button-secondary"
+                      disabled={busy !== null}
+                      aria-pressed={backupStep === 'create'}
+                      onClick={() => {
+                        setBackupStep('create')
+                        setBackupError(null)
+                      }}
                     >
-                      <Icon name="backup" size={17} />
-                      {busy === 'export' ? 'Encrypting…' : 'Export complete backup'}
+                      Create a backup file
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      disabled={busy !== null}
+                      aria-pressed={backupStep === 'verify'}
+                      onClick={() => {
+                        setBackupStep('verify')
+                        setBackupError(null)
+                      }}
+                    >
+                      Verify an existing file
                     </button>
                   </div>
+                  {backupOffered ? (
+                    <p
+                      className="notice notice-info"
+                      role="status"
+                      aria-label="Backup progress"
+                    >
+                      File offered for saving - reopen it to verify. Closing the share
+                      sheet does not confirm a saved copy.
+                    </p>
+                  ) : null}
+                  {backupError ? (
+                    <p className="field-error" role="alert">
+                      {backupError}
+                    </p>
+                  ) : null}
+                </div>
+                <div hidden={backupStep !== 'create'}>
+                  <h3 className="backup-step-heading">1. Create a backup file</h3>
+                  <fieldset className="backup-fields" disabled={busy !== null}>
+                    <div className="settings-form">
+                      <label className="field">
+                        <span>Backup PIN</span>
+                        <input
+                          className="input"
+                          type="password"
+                          autoComplete="new-password"
+                          value={exportPin}
+                          onChange={(event) => setExportPin(event.target.value)}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Confirm backup PIN</span>
+                        <input
+                          className="input"
+                          type="password"
+                          autoComplete="new-password"
+                          value={confirmExportPin}
+                          onChange={(event) => setConfirmExportPin(event.target.value)}
+                        />
+                      </label>
+                      <p className="field-hint field-span">
+                        This PIN cannot be reset. Store the exported file away from this
+                        device. Exporting or opening the share sheet does not prove the
+                        file was saved.
+                      </p>
+                      <div className="settings-save field-span">
+                        <button
+                          type="button"
+                          className="button"
+                          disabled={busy !== null}
+                          onClick={() => void exportBackup()}
+                        >
+                          <Icon name="backup" size={17} />
+                          {busy === 'export' ? 'Encrypting…' : 'Export complete backup'}
+                        </button>
+                      </div>
+                    </div>
+                  </fieldset>
                 </div>
               </section>
 
               <section className="card">
-                <header className="card-header">
-                  <div>
-                    <h2>Verify a saved backup</h2>
-                    <p className="muted">
-                      Reopen the file you saved, enter its PIN and check its records and
-                      documents without restoring them.
-                    </p>
-                  </div>
-                </header>
-                <div className="settings-form">
-                  <label className="field field-span">
-                    <span>Saved .finapp file to verify</span>
-                    <input
-                      className="input"
-                      type="file"
-                      accept=".finapp,application/octet-stream"
-                      onChange={(event) => setVerifyFile(event.target.files?.[0] ?? null)}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Saved backup PIN</span>
-                    <input
-                      className="input"
-                      type="password"
-                      value={verifyPin}
-                      onChange={(event) => setVerifyPin(event.target.value)}
-                    />
-                  </label>
-                  <div className="settings-save field-span">
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      disabled={!verifyFile || !verifyPin || busy === 'verify'}
-                      onClick={() => void verifyBackup()}
-                    >
-                      {busy === 'verify' ? 'Verifying…' : 'Verify saved backup'}
-                    </button>
-                  </div>
+                <div hidden={backupStep !== 'verify'}>
+                  <header className="card-header">
+                    <div>
+                      <h2 ref={verifyHeading} tabIndex={-1}>
+                        2. Reopen and verify
+                      </h2>
+                      <p className="muted">
+                        Reopen the file you saved, enter its PIN and check its records and
+                        documents without restoring them.
+                      </p>
+                    </div>
+                  </header>
+                  <fieldset className="backup-fields" disabled={busy !== null}>
+                    <div className="settings-form">
+                      <label className="field field-span">
+                        <span>Saved .finapp file to verify</span>
+                        <input
+                          className="input"
+                          type="file"
+                          accept=".finapp,application/octet-stream"
+                          onChange={(event) =>
+                            setVerifyFile(event.target.files?.[0] ?? null)
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Saved backup PIN</span>
+                        <input
+                          className="input"
+                          type="password"
+                          value={verifyPin}
+                          onChange={(event) => setVerifyPin(event.target.value)}
+                        />
+                      </label>
+                      <div className="settings-save field-span">
+                        <button
+                          type="button"
+                          className="button button-secondary"
+                          disabled={!verifyFile || !verifyPin || busy !== null}
+                          onClick={() => void verifyBackup()}
+                        >
+                          {busy === 'verify' ? 'Verifying…' : 'Verify saved backup'}
+                        </button>
+                      </div>
+                    </div>
+                  </fieldset>
                 </div>
                 <div className="card-body">
                   {settings.verifiedBackup ? (
@@ -911,60 +992,64 @@ export function SettingsPage() {
                 </div>
               </section>
 
-              <section className="card">
+              <details className="card backup-restore">
+                <summary>Restore complete backup</summary>
                 <header className="card-header">
                   <div>
-                    <h2>Restore complete backup</h2>
                     <p className="muted">
                       Validates the candidate, exports a safety backup, then atomically
                       replaces this workspace.
                     </p>
                   </div>
                 </header>
-                <div className="settings-form">
-                  <label className="field field-span">
-                    <span>.finapp backup file</span>
-                    <input
-                      className="input"
-                      type="file"
-                      accept=".finapp,application/octet-stream"
-                      onChange={(event) => {
-                        setRestoreFile(event.target.files?.[0] ?? null)
-                        setSafetyFingerprint(null)
-                        setSafetyFile(null)
-                      }}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Backup file PIN</span>
-                    <input
-                      className="input"
-                      type="password"
-                      value={restorePin}
-                      onChange={(event) => setRestorePin(event.target.value)}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>New safety-backup PIN</span>
-                    <input
-                      className="input"
-                      type="password"
-                      value={safetyPin}
-                      onChange={(event) => setSafetyPin(event.target.value)}
-                    />
-                  </label>
-                  <div className="settings-save field-span">
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      disabled={!restoreFile || !restorePin || !safetyPin}
-                      onClick={() => setRestoreConfirmOpen(true)}
-                    >
-                      Review destructive restore
-                    </button>
+                <fieldset className="backup-fields" disabled={busy !== null}>
+                  <div className="settings-form">
+                    <label className="field field-span">
+                      <span>.finapp backup file</span>
+                      <input
+                        className="input"
+                        type="file"
+                        accept=".finapp,application/octet-stream"
+                        onChange={(event) => {
+                          setRestoreFile(event.target.files?.[0] ?? null)
+                          setSafetyFingerprint(null)
+                          setSafetyFile(null)
+                        }}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Backup file PIN</span>
+                      <input
+                        className="input"
+                        type="password"
+                        value={restorePin}
+                        onChange={(event) => setRestorePin(event.target.value)}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>New safety-backup PIN</span>
+                      <input
+                        className="input"
+                        type="password"
+                        value={safetyPin}
+                        onChange={(event) => setSafetyPin(event.target.value)}
+                      />
+                    </label>
+                    <div className="settings-save field-span">
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        disabled={
+                          !restoreFile || !restorePin || !safetyPin || busy !== null
+                        }
+                        onClick={() => setRestoreConfirmOpen(true)}
+                      >
+                        Review destructive restore
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </section>
+                </fieldset>
+              </details>
 
               <section className="card">
                 <header className="card-header">
@@ -978,7 +1063,7 @@ export function SettingsPage() {
                     <input
                       type="checkbox"
                       checked={settings.androidBackupEnabled}
-                      disabled={!backupCapability.available || busy === 'system-backup'}
+                      disabled={!backupCapability.available || busy !== null}
                       onChange={(event) => void toggleSystemBackup(event.target.checked)}
                     />
                     <span>{settings.androidBackupEnabled ? 'Enabled' : 'Disabled'}</span>
@@ -1117,6 +1202,7 @@ export function SettingsPage() {
             <button
               type="button"
               className="button button-secondary"
+              disabled={busy === 'safety' || busy === 'restore'}
               onClick={closeRestore}
             >
               Cancel
@@ -1147,6 +1233,7 @@ export function SettingsPage() {
           <label className="field">
             <span>Saved safety-backup file</span>
             <input
+              ref={safetyInput}
               className="input"
               type="file"
               accept=".finapp,application/octet-stream"

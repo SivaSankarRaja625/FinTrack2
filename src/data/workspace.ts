@@ -55,7 +55,7 @@ export class Workspace {
     )
     return createCompleteBackup(
       {
-        dataSchemaVersion: 2,
+        dataSchemaVersion: 3,
         records,
         attachments: attachments.map((item) =>
           attachmentToBackup(item.metadata, item.content),
@@ -154,6 +154,7 @@ export async function initializeWorkspace(
       goals: [],
       importBatches: [],
       netWorthSnapshots: [],
+      financialEvents: [],
     })
     return workspace
   } catch (error) {

@@ -371,7 +371,7 @@ test('records finance data and reloads without a network connection', async ({
   })
 
   await createWorkspace(page)
-  await page.getByRole('link', { name: 'View ledger' }).click()
+  await page.getByRole('link', { name: 'Activity', exact: true }).click()
   await expect(
     page.getByRole('heading', { name: 'Transactions', exact: true }),
   ).toBeVisible()

@@ -1,16 +1,14 @@
 import Decimal from 'decimal.js'
 
 import { calculateEmiPaise } from '../calculations'
-import { isIsoDate } from '../dates'
 import { assertPaise } from '../money'
-import type { ISODate, Paise } from '../types'
-import { monthlyDate, ratePercent } from './schedule'
+import type { Paise } from '../types'
+import { ratePercent } from './schedule'
 
 export interface PrepaymentInput {
   balancePaise: Paise
   annualRatePercent: string
   remainingMonths: number
-  firstPaymentDate: ISODate
   prepaymentMonth: number
   prepaymentPaise: Paise
   feePaise: Paise
@@ -19,7 +17,7 @@ export interface PrepaymentInput {
 }
 
 export interface RepaymentRow {
-  date: ISODate
+  emiNumber: number
   interestPaise: Paise
   paymentPaise: Paise
   prepaymentPaise: Paise
@@ -46,10 +44,9 @@ export function compareLoanPrepayment(input: PrepaymentInput): PrepaymentResult 
     input.remainingMonths > 720 ||
     !Number.isSafeInteger(input.prepaymentMonth) ||
     input.prepaymentMonth < 1 ||
-    input.prepaymentMonth >= input.remainingMonths ||
-    !isIsoDate(input.firstPaymentDate)
+    input.prepaymentMonth >= input.remainingMonths
   ) {
-    throw new Error('Choose valid EMI dates and a prepayment before the final month')
+    throw new Error('Enter 2-720 remaining EMIs and a prepayment before the final EMI')
   }
   for (const amount of [
     input.balancePaise,
@@ -86,7 +83,6 @@ export function compareLoanPrepayment(input: PrepaymentInput): PrepaymentResult 
     let totalInterest = 0
     const rows: RepaymentRow[] = []
     for (let month = 1; month <= payoffMonths && balance > 0; month += 1) {
-      const date = monthlyDate(input.firstPaymentDate, month - 1)
       const interestPaise = new Decimal(balance)
         .mul(monthlyRate)
         .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
@@ -118,7 +114,7 @@ export function compareLoanPrepayment(input: PrepaymentInput): PrepaymentResult 
       totalInterest += interestPaise
       assertPaise(totalInterest)
       rows.push({
-        date,
+        emiNumber: month,
         interestPaise,
         paymentPaise,
         prepaymentPaise,
