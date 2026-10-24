@@ -603,6 +603,46 @@ export function SettingsPage() {
                   </label>
                 </div>
               </section>
+
+              <section className="card">
+                <header className="card-header">
+                  <div>
+                    <h2>Daily expense reminder</h2>
+                    <p className="muted">
+                      Prompt to review transactions and scan SMS messages each evening.
+                    </p>
+                  </div>
+                </header>
+                <div className="settings-form">
+                  <label className="check-row">
+                    <input
+                      type="checkbox"
+                      checked={settings.smsExpenseReminderEnabled ?? true}
+                      onChange={(event) =>
+                        void saveSettings({
+                          smsExpenseReminderEnabled: event.target.checked,
+                        })
+                      }
+                    />
+                    <span>Remind daily to review and scan expenses</span>
+                  </label>
+                  {(settings.smsExpenseReminderEnabled ?? true) ? (
+                    <label className="field">
+                      <span>Reminder time</span>
+                      <input
+                        className="input"
+                        type="time"
+                        value={settings.smsExpenseReminderTime ?? '21:00'}
+                        onChange={(event) =>
+                          void saveSettings({
+                            smsExpenseReminderTime: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  ) : null}
+                </div>
+              </section>
             </>
           ) : null}
 

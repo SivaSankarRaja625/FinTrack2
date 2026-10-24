@@ -151,6 +151,8 @@ export function AlertsPage() {
         | 'notificationLeadDays'
         | 'quietHoursStart'
         | 'quietHoursEnd'
+        | 'smsExpenseReminderEnabled'
+        | 'smsExpenseReminderTime'
         | 'disabledAlertRules'
         | 'budgetWarningPercent'
         | 'largeExpenseMultiplier'
@@ -441,6 +443,31 @@ export function AlertsPage() {
                   }
                 />
               </label>
+              <label className="switch-row field-span">
+                <input
+                  type="checkbox"
+                  checked={settings.smsExpenseReminderEnabled ?? true}
+                  onChange={(event) =>
+                    void updateSettings({
+                      smsExpenseReminderEnabled: event.target.checked,
+                    })
+                  }
+                />
+                <span>Daily SMS expense reminder</span>
+              </label>
+              {(settings.smsExpenseReminderEnabled ?? true) ? (
+                <label className="field">
+                  <span>Daily reminder time</span>
+                  <input
+                    className="input"
+                    type="time"
+                    value={settings.smsExpenseReminderTime ?? '21:00'}
+                    onChange={(event) =>
+                      void updateSettings({ smsExpenseReminderTime: event.target.value })
+                    }
+                  />
+                </label>
+              ) : null}
               <div className="notification-status">
                 <span>Permission</span>
                 <strong>

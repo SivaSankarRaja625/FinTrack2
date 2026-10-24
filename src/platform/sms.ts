@@ -1,6 +1,7 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
 
 import type { RawSmsMessage } from '../domain/sms'
+export type { RawSmsMessage }
 
 interface FinTrackSmsPlugin {
   checkPermissions(): Promise<{ sms: string }>

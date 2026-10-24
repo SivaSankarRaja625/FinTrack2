@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { previewSmsTransactions } from '../../domain/sms'
+import { previewSmsTransactions, type RawSmsMessage } from '../../domain/sms'
 import { createImportBatch } from '../../domain/csv'
-import type { RawSmsMessage } from '../../platform/sms'
 import type { Account, Category, Transaction } from '../../domain/types'
 
 describe('SMS import workflow', () => {
@@ -32,7 +31,12 @@ describe('SMS import workflow', () => {
         archived: false,
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: '2026-01-01T00:00:00Z',
-        creditCardDetails: { lastFour: '1234' },
+        creditCardDetails: {
+          lastFour: '1234',
+          creditLimitPaise: 100_000_00,
+          statementDay: 1,
+          paymentDueDay: 20,
+        },
       },
     ]
 
