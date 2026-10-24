@@ -28,6 +28,7 @@ android/local.properties
 !.env.example
 
 # Editor directories and files
+.superpowers
 .vscode/*
 !.vscode/extensions.json
 .idea
