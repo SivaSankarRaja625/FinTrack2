@@ -35,6 +35,8 @@ export const appSettingsSchema = z.object({
   notificationCatchUps: z.array(z.string().min(1)).max(500).optional(),
   quietHoursStart: z.string().regex(/^\d{2}:\d{2}$/u),
   quietHoursEnd: z.string().regex(/^\d{2}:\d{2}$/u),
+  smsExpenseReminderEnabled: z.boolean().optional(),
+  smsExpenseReminderTime: z.string().regex(/^\d{2}:\d{2}$/u).optional(),
   androidBackupEnabled: z.boolean(),
   lastSystemSnapshotAt: isoDateTime.nullable(),
   lastManualBackupAt: isoDateTime.nullable(),

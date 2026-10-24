@@ -134,6 +134,26 @@ export function depositReminders(
   })
 }
 
+function smsExpenseReminder(settings: AppSettings, now = new Date()): DatedReminder[] {
+  if (settings.smsExpenseReminderEnabled === false) return []
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  const todayStr = `${year}-${month}-${day}`
+  return [
+    {
+      key: `sms-expense-reminder:${todayStr}`,
+      ruleType: 'recurring-due',
+      title: 'Review today’s expenses',
+      date: todayStr,
+      route: '/transactions?action=scan-sms',
+      leadDays: [0],
+      detail: 'Scan and review received transaction SMS messages to keep your ledger up to date.',
+      evidence: `Daily reminder configured for ${settings.smsExpenseReminderTime ?? '21:00'}.`,
+    },
+  ]
+}
+
 export function collectDatedReminders(
   data: FinanceData,
   settings: AppSettings,
@@ -167,6 +187,7 @@ export function collectDatedReminders(
       })),
     ...cardReminders(data, settings),
     ...depositReminders(data, settings),
+    ...smsExpenseReminder(settings),
   ]
     .filter(
       (item) =>

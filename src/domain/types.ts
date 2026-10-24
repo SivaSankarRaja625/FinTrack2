@@ -91,6 +91,8 @@ export interface AppSettings extends BaseEntity {
     | undefined
   highCostDebtBps?: number | null | undefined
   concentrationWarningPercent?: number | null | undefined
+  smsExpenseReminderEnabled?: boolean | undefined
+  smsExpenseReminderTime?: string | undefined
   dismissedAlertKeys: string[]
   snoozedAlerts: SnoozedAlert[]
   alertHistory: AlertHistoryEntry[]

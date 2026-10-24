@@ -49,6 +49,8 @@ export function createDefaultSettings(): AppSettings {
     notificationsEnabled: false,
     quietHoursStart: '21:00',
     quietHoursEnd: '08:00',
+    smsExpenseReminderEnabled: true,
+    smsExpenseReminderTime: '21:00',
     androidBackupEnabled: false,
     lastSystemSnapshotAt: null,
     lastManualBackupAt: null,
