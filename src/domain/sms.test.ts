@@ -184,13 +184,13 @@ describe('previewSmsTransactions', () => {
     expect(preview).toHaveLength(2)
 
     // First one matches existing transaction => duplicate
-    expect(preview[0].matchedAccountId).toBe('acc-1')
-    expect(preview[0].duplicate).toBe(true)
-    expect(preview[0].matchedTransactionId).toBe('txn-existing')
+    expect(preview[0]?.matchedAccountId).toBe('acc-1')
+    expect(preview[0]?.duplicate).toBe(true)
+    expect(preview[0]?.matchedTransactionId).toBe('txn-existing')
 
     // Second one is new => not duplicate, category matched to food
-    expect(preview[1].matchedAccountId).toBe('acc-1')
-    expect(preview[1].duplicate).toBe(false)
-    expect(preview[1].suggestedCategoryId).toBe('cat-food')
+    expect(preview[1]?.matchedAccountId).toBe('acc-1')
+    expect(preview[1]?.duplicate).toBe(false)
+    expect(preview[1]?.suggestedCategoryId).toBe('cat-food')
   })
 })

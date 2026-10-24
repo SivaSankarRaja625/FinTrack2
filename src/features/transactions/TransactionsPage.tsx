@@ -1,5 +1,6 @@
 import { format, parseISO } from 'date-fns'
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { useFinance } from '../../app/FinanceContext'
 import {
@@ -15,6 +16,8 @@ import { EmptyState, Metric, PageHeader } from '../../ui/Page'
 import { useToast } from '../../ui/Toast'
 import { AccountDialog } from './AccountDialog'
 import { CsvImportDialog } from './CsvImportDialog'
+import { SmsImportDialog } from './SmsImportDialog'
+import { getSmsCapability } from '../../platform/sms'
 import { TransactionDialog } from './TransactionDialog'
 import { ScrollableTable } from '../../ui/ScrollableTable'
 import { FinancialActionDialog } from '../../ui/FinancialActionDialog'
@@ -32,6 +35,18 @@ export function TransactionsPage() {
     null,
   )
   const [importOpen, setImportOpen] = useState(false)
+  const [smsOpen, setSmsOpen] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const smsCapability = useMemo(() => getSmsCapability(), [])
+
+  useEffect(() => {
+    if (searchParams.get('action') === 'scan-sms') {
+      setSmsOpen(true)
+      const next = new URLSearchParams(searchParams)
+      next.delete('action')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
   const [reimbursementId, setReimbursementId] = useState<string | null>(null)
   const [activityExpenseId, setActivityExpenseId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
@@ -128,6 +143,17 @@ export function TransactionsPage() {
         description="Your income, expenses and transfers."
         action={
           <div className="cluster">
+            {smsCapability.available ? (
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={() => setSmsOpen(true)}
+                disabled={data.accounts.length === 0}
+              >
+                <Icon name="search" size={17} />
+                Scan SMS
+              </button>
+            ) : null}
             <button
               type="button"
               className="button button-secondary"
@@ -540,6 +566,7 @@ export function TransactionsPage() {
         />
       ) : null}
       {importOpen ? <CsvImportDialog onClose={() => setImportOpen(false)} /> : null}
+      {smsOpen ? <SmsImportDialog onClose={() => setSmsOpen(false)} /> : null}
       <ConfirmDialog
         open={deleteTarget !== null}
         title={

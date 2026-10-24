@@ -81,6 +81,8 @@ export function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     notificationsEnabled: false,
     quietHoursStart: '21:00',
     quietHoursEnd: '08:00',
+    smsExpenseReminderEnabled: false,
+    smsExpenseReminderTime: '21:00',
     androidBackupEnabled: false,
     lastSystemSnapshotAt: null,
     lastManualBackupAt: timestamp,

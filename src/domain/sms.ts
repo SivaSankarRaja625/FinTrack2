@@ -62,7 +62,8 @@ export function parseFinancialSms(sms: RawSmsMessage): ParsedSmsTransaction | nu
 
   if (!amountMatch) return null
 
-  const rawAmount = amountMatch[1].replace(/,/g, '')
+  const rawAmount = amountMatch[1]?.replace(/,/g, '')
+  if (!rawAmount) return null
   const numericAmount = Number.parseFloat(rawAmount)
   if (Number.isNaN(numericAmount) || numericAmount <= 0) return null
   const amountPaise = Math.round(numericAmount * 100)
@@ -90,7 +91,7 @@ export function parseFinancialSms(sms: RawSmsMessage): ParsedSmsTransaction | nu
     /[*xX]{2,}(\d{4})\b/i.exec(body) ??
     /\.{2,}(\d{4})\b/i.exec(body)
 
-  if (accountMatch) {
+  if (accountMatch?.[1]) {
     rawAccountDigits = accountMatch[1]
   }
 
@@ -99,9 +100,9 @@ export function parseFinancialSms(sms: RawSmsMessage): ParsedSmsTransaction | nu
   const upiMerchantMatch = /UPI\/[A-Za-z0-9]+\/([A-Za-z0-9\s._\-@]+?)(?=\s+(?:on|avail|bal|ref|via|\.|$))/i.exec(body)
   const generalMerchantMatch = /(?:at|to|info:?|from)\s+([A-Za-z0-9\s._\-@]+?)(?=\s+(?:on|avail|bal|ref|upi|via|\.|$))/i.exec(body)
 
-  if (upiMerchantMatch) {
+  if (upiMerchantMatch?.[1]) {
     merchant = upiMerchantMatch[1].trim()
-  } else if (generalMerchantMatch) {
+  } else if (generalMerchantMatch?.[1]) {
     merchant = generalMerchantMatch[1].trim()
   } else if (sms.address) {
     merchant = sms.address
@@ -110,7 +111,7 @@ export function parseFinancialSms(sms: RawSmsMessage): ParsedSmsTransaction | nu
   // Extract reference number / UTR
   let reference: string | null = null
   const refMatch = /(?:ref|rrn|utr|txn\s*(?:id|ref)?)\s*(?:no\.?)?[:\s]*([A-Za-z0-9]+)/i.exec(body)
-  if (refMatch) {
+  if (refMatch?.[1]) {
     reference = refMatch[1].trim()
   }
 
@@ -171,11 +172,11 @@ export function previewSmsTransactions(options: {
     // Match account
     let matchedAccountId: string | null = null
     if (parsed.rawAccountDigits) {
+      const digits = parsed.rawAccountDigits
       const match = accounts.find(
         (a) =>
           !a.archived &&
-          (a.creditCardDetails?.lastFour === parsed.rawAccountDigits ||
-            a.name.includes(parsed.rawAccountDigits)),
+          (a.creditCardDetails?.lastFour === digits || a.name.includes(digits)),
       )
       if (match) matchedAccountId = match.id
     }

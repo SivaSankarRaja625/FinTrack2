@@ -59,7 +59,7 @@ describe('src/platform/sms', () => {
 
     const messages = await fetchInboxSms({ sinceMs: 1729700000000 })
     expect(messages).toHaveLength(1)
-    expect(messages[0].address).toBe('VM-HDFCBK')
+    expect(messages[0]?.address).toBe('VM-HDFCBK')
     expect(mocks.listMessages).toHaveBeenCalledWith({
       sinceMs: 1729700000000,
       untilMs: undefined,
